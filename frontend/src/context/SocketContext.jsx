@@ -19,6 +19,7 @@ export const useSocket = () => useContext(SocketContext);
 export const SocketProvider = ({ children }) => {
   const { user, isAuthenticated } = useAuth();
   const [notifCount, setNotifCount] = useState(0);
+  const [socketReady, setSocketReady] = useState(false);
   const socketRef = useRef(null);
 
   useEffect(() => {
@@ -27,6 +28,7 @@ export const SocketProvider = ({ children }) => {
         socketRef.current.disconnect();
         socketRef.current = null;
       }
+      setSocketReady(false);
       return;
     }
 
@@ -36,19 +38,26 @@ export const SocketProvider = ({ children }) => {
     });
 
     socketRef.current = newSocket;
+    setSocketReady(true);
 
     return () => {
       newSocket.disconnect();
       socketRef.current = null;
+      setSocketReady(false);
     };
   }, [isAuthenticated, user]);
 
-  const onEvent = useCallback((event, handler) => {
-    const s = socketRef.current;
-    if (!s) return () => {};
-    s.on(event, handler);
-    return () => s.off(event, handler);
-  }, []);
+  const onEvent = useCallback(
+    (event, handler) => {
+      const s = socketRef.current;
+      if (!s) return () => {};
+      s.on(event, handler);
+      return () => s.off(event, handler);
+    },
+    // socketReady ensures consumers re-register when socket is created
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [socketReady],
+  );
 
   const clearNotifs = useCallback(() => setNotifCount(0), []);
   const incrementNotifs = useCallback(() => setNotifCount((c) => c + 1), []);

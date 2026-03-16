@@ -152,7 +152,7 @@ const ProductsPage = () => {
         </div>
         <button
           onClick={() => setShowFilters(!showFilters)}
-          className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-surface border border-border text-text-muted hover:text-text hover:border-primary/30 transition-all sm:w-auto"
+          className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-surface border border-border text-text-muted cursor-pointer hover:text-text hover:border-primary/30 hover:scale-105 active:scale-95 transition-all sm:w-auto"
         >
           <SlidersHorizontal size={18} />
           <span className="text-sm font-medium">Filters</span>
@@ -172,7 +172,7 @@ const ProductsPage = () => {
             {activeFilterCount > 0 && (
               <button
                 onClick={clearFilters}
-                className="flex items-center gap-1 text-xs text-error hover:text-error/80 transition-colors"
+                className="flex items-center gap-1 text-xs text-error hover:text-error/80 cursor-pointer hover:scale-105 active:scale-95 transition-all"
               >
                 <X size={12} />
                 Clear all
@@ -188,10 +188,10 @@ const ProductsPage = () => {
                 <button
                   key={cat}
                   onClick={() => handleCategorySelect(cat)}
-                  className={`px-4 py-2 rounded-full text-xs font-medium transition-all ${
+                  className={`px-4 py-2 rounded-full text-xs font-medium cursor-pointer hover:scale-105 active:scale-95 transition-all ${
                     selectedCategories.includes(cat)
                       ? "bg-primary text-white shadow-md shadow-primary/25"
-                      : "bg-gray-100 text-gray-500 hover:text-gray-700"
+                      : "bg-gray-100 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
                   }`}
                 >
                   {cat}
@@ -230,20 +230,20 @@ const ProductsPage = () => {
           <div className="flex gap-2">
             <button
               onClick={() => setFilterOrganic(!filterOrganic)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer hover:scale-105 active:scale-95 transition-all ${
                 filterOrganic
                   ? "bg-green-600 text-white"
-                  : "bg-gray-100 text-gray-500 hover:text-gray-700"
+                  : "bg-gray-100 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
               }`}
             >
               🌿 Organic
             </button>
             <button
               onClick={() => setFilterFresh(!filterFresh)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer hover:scale-105 active:scale-95 transition-all ${
                 filterFresh
                   ? "bg-sky-500 text-white"
-                  : "bg-gray-100 text-gray-500 hover:text-gray-700"
+                  : "bg-gray-100 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
               }`}
             >
               ✨ Fresh
@@ -265,7 +265,7 @@ const ProductsPage = () => {
             <button
               key={cat}
               onClick={() => handleCategorySelect(cat)}
-              className="flex items-center gap-1 px-3 py-1 bg-primary/10 text-primary text-sm font-medium rounded-full hover:bg-primary/20 transition-colors"
+              className="flex items-center gap-1 px-3 py-1 bg-primary/10 text-primary text-sm font-medium rounded-full cursor-pointer hover:bg-primary/20 hover:scale-105 active:scale-95 transition-all"
             >
               {cat}
               <X size={12} />
@@ -273,7 +273,7 @@ const ProductsPage = () => {
           ))}
           <button
             onClick={clearFilters}
-            className="p-1 rounded-full hover:bg-surface-light transition-colors"
+            className="p-1 rounded-full cursor-pointer hover:bg-surface-light hover:scale-110 active:scale-95 transition-all"
           >
             <X size={14} className="text-text-muted" />
           </button>
@@ -298,7 +298,7 @@ const ProductsPage = () => {
           </p>
           <button
             onClick={clearFilters}
-            className="mt-4 px-6 py-2 text-sm font-medium text-primary-light hover:text-primary border border-primary/30 rounded-lg transition-colors"
+            className="mt-4 px-6 py-2 text-sm font-medium text-primary-light hover:text-primary border border-primary/30 rounded-lg cursor-pointer hover:scale-105 active:scale-95 transition-all"
           >
             Clear Filters
           </button>

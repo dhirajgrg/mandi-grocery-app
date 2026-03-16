@@ -16,6 +16,9 @@ import OrdersPage from "./pages/Orders/OrdersPage";
 import AdminPage from "./pages/Admin/AdminPage";
 import PaymentSuccessPage from "./pages/Payment/PaymentSuccessPage";
 import PaymentFailurePage from "./pages/Payment/PaymentFailurePage";
+import TermsOfServicePage from "./pages/Legal/TermsOfServicePage";
+import PrivacyPolicyPage from "./pages/Legal/PrivacyPolicyPage";
+import NotFoundPage from "./pages/NotFound/NotFoundPage";
 
 function App() {
   return (
@@ -27,6 +30,8 @@ function App() {
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/deals" element={<DealsPage />} />
           <Route path="/contact" element={<ContactPage />} />
+          <Route path="/terms" element={<TermsOfServicePage />} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -87,6 +92,9 @@ function App() {
               </ProtectedRoute>
             }
           />
+
+          {/* 404 catch-all */}
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -282,6 +282,23 @@ export const updateProfilePic = catchAsync(async (req, res, next) => {
   res.status(200).json(new ApiResponse(200, "Profile picture updated", user));
 });
 
+// UPDATE NAME (ANY AUTHENTICATED USER)
+export const updateName = catchAsync(async (req, res, next) => {
+  const { name } = req.body;
+
+  if (!name || !name.trim()) {
+    return next(new AppError("Name is required", 400));
+  }
+
+  const user = await User.findByIdAndUpdate(
+    req.user._id,
+    { name: name.trim() },
+    { new: true, runValidators: true },
+  );
+
+  res.status(200).json(new ApiResponse(200, "Name updated successfully", user));
+});
+
 // UPDATE USER (ADMIN ONLY)
 export const updateUser = catchAsync(async (req, res, next) => {
   const { id } = req.params;

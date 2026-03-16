@@ -26,9 +26,9 @@ export const placeOrder = catchAsync(async (req, res, next) => {
     );
   }
 
-  const { lat, lng, address, paymentMethod } = req.body;
+  const { lat, lng, address, paymentMethod, orderType } = req.body;
 
-  if (!address) {
+  if (orderType !== "takeaway" && !address) {
     return next(new AppError("Delivery address is required", 400));
   }
 
@@ -65,7 +65,11 @@ export const placeOrder = catchAsync(async (req, res, next) => {
     userId: req.user._id,
     items: orderItems,
     totalAmount,
-    deliveryLocation: { lat: lat || 0, lng: lng || 0, address },
+    orderType: orderType || "delivery",
+    deliveryLocation:
+      orderType === "takeaway"
+        ? { address: "Takeaway - Store Pickup" }
+        : { lat: lat || 0, lng: lng || 0, address },
     paymentMethod: paymentMethod || "cod",
   });
 
@@ -78,7 +82,8 @@ export const placeOrder = catchAsync(async (req, res, next) => {
 
   // Notify admins in real-time
   try {
-    getIO().to("admins").emit("new_order", {
+    getIO().to("admins").emit("order_update", {
+      type: "new_order",
       orderId: order._id,
       orderNumber: order.orderNumber,
       totalAmount: order.totalAmount,
@@ -96,7 +101,10 @@ export const placeOrder = catchAsync(async (req, res, next) => {
 
 // GET /api/v1/orders — Get my orders (customer)
 export const getMyOrders = catchAsync(async (req, res, next) => {
-  const orders = await Order.find({ userId: req.user._id })
+  const orders = await Order.find({
+    userId: req.user._id,
+    deletedByUser: { $ne: true },
+  })
     .populate("items.productId")
     .sort({ createdAt: -1 });
 
@@ -151,9 +159,43 @@ export const cancelOrder = catchAsync(async (req, res, next) => {
   await order.save();
   await order.populate("items.productId");
 
+  // Notify admins in real-time
+  try {
+    getIO().to("admins").emit("order_update", {
+      type: "order_cancelled",
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      customerName: req.user.name,
+    });
+  } catch {
+    // socket not critical
+  }
+
   res
     .status(200)
     .json(new ApiResponse(200, "Order cancelled successfully", { order }));
+});
+
+// DELETE /api/v1/orders/:id — Soft-delete cancelled order (customer)
+export const deleteOrder = catchAsync(async (req, res, next) => {
+  const order = await Order.findById(req.params.id);
+
+  if (!order) {
+    return next(new AppError("Order not found", 404));
+  }
+
+  if (order.userId.toString() !== req.user._id.toString()) {
+    return next(new AppError("Permission denied", 403));
+  }
+
+  if (order.status !== "cancelled") {
+    return next(new AppError("Only cancelled orders can be deleted", 400));
+  }
+
+  order.deletedByUser = true;
+  await order.save();
+
+  res.status(200).json(new ApiResponse(200, "Order deleted successfully"));
 });
 
 // ========================
@@ -223,6 +265,13 @@ export const updateOrderStatus = catchAsync(async (req, res, next) => {
       orderNumber: order.orderNumber,
       status: order.status,
     });
+    // Also notify admins so all admin dashboards stay in sync
+    getIO().to("admins").emit("order_update", {
+      type: "status_changed",
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+    });
   } catch {
     // socket not critical
   }
@@ -268,6 +317,14 @@ export const getAdminStats = catchAsync(async (req, res, next) => {
                   $cond: [{ $eq: ["$status", "delivered"] }, "$totalAmount", 0],
                 },
               },
+              cancelledCount: {
+                $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] },
+              },
+              cancelledRevenue: {
+                $sum: {
+                  $cond: [{ $eq: ["$status", "cancelled"] }, "$totalAmount", 0],
+                },
+              },
             },
           },
         ],
@@ -277,6 +334,57 @@ export const getAdminStats = catchAsync(async (req, res, next) => {
               _id: "$status",
               count: { $sum: 1 },
               amount: { $sum: "$totalAmount" },
+            },
+          },
+        ],
+        dailyOrders: [
+          {
+            $group: {
+              _id: {
+                $dateToString: { format: "%Y-%m-%d", date: "$createdAt" },
+              },
+              orders: { $sum: 1 },
+              revenue: { $sum: "$totalAmount" },
+              cancelled: {
+                $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] },
+              },
+              delivered: {
+                $sum: { $cond: [{ $eq: ["$status", "delivered"] }, 1, 0] },
+              },
+            },
+          },
+          { $sort: { _id: 1 } },
+          { $limit: 30 },
+        ],
+        cancelledByUser: [
+          { $match: { status: "cancelled" } },
+          {
+            $group: {
+              _id: "$userId",
+              count: { $sum: 1 },
+              totalLost: { $sum: "$totalAmount" },
+              orderNumbers: { $push: "$orderNumber" },
+            },
+          },
+          { $sort: { count: -1 } },
+          { $limit: 10 },
+          {
+            $lookup: {
+              from: "users",
+              localField: "_id",
+              foreignField: "_id",
+              as: "user",
+            },
+          },
+          { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+          {
+            $project: {
+              _id: 1,
+              count: 1,
+              totalLost: 1,
+              orderNumbers: 1,
+              "user.name": 1,
+              "user.email": 1,
             },
           },
         ],
@@ -303,6 +411,15 @@ export const getAdminStats = catchAsync(async (req, res, next) => {
             },
           },
         ],
+        byPaymentMethod: [
+          {
+            $group: {
+              _id: "$paymentMethod",
+              count: { $sum: 1 },
+              amount: { $sum: "$totalAmount" },
+            },
+          },
+        ],
       },
     },
   ]);
@@ -311,10 +428,16 @@ export const getAdminStats = catchAsync(async (req, res, next) => {
     totalOrders: 0,
     totalRevenue: 0,
     deliveredRevenue: 0,
+    cancelledCount: 0,
+    cancelledRevenue: 0,
   };
   const statusMap = {};
   for (const s of stats.byStatus) {
-    statusMap[s._id] = { count: s.count, amount: s.amount };
+    statusMap[s._id] = { count: s.count, amount: Math.round(s.amount) };
+  }
+  const paymentMap = {};
+  for (const p of stats.byPaymentMethod) {
+    paymentMap[p._id] = { count: p.count, amount: Math.round(p.amount) };
   }
 
   res.status(200).json(
@@ -322,8 +445,19 @@ export const getAdminStats = catchAsync(async (req, res, next) => {
       totalOrders: overall.totalOrders,
       totalRevenue: Math.round(overall.totalRevenue),
       deliveredRevenue: Math.round(overall.deliveredRevenue),
+      cancelledCount: overall.cancelledCount,
+      cancelledRevenue: Math.round(overall.cancelledRevenue),
       ordersByStatus: statusMap,
+      dailyOrders: stats.dailyOrders.map((d) => ({
+        date: d._id,
+        orders: d.orders,
+        revenue: Math.round(d.revenue),
+        cancelled: d.cancelled,
+        delivered: d.delivered,
+      })),
+      cancelledByUser: stats.cancelledByUser,
       recentOrders: stats.recentOrders,
+      byPaymentMethod: paymentMap,
     }),
   );
 });

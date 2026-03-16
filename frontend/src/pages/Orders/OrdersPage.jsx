@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronUp,
   ArrowRight,
+  Store,
 } from "lucide-react";
 import { orderAPI } from "../../api/orderAPI";
 import { useSocket } from "../../context/SocketContext";
@@ -96,6 +97,20 @@ const OrdersPage = () => {
       fetchOrders();
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to cancel order");
+    }
+  };
+
+  const handleDelete = async (orderId) => {
+    if (
+      !window.confirm("Are you sure you want to delete this cancelled order?")
+    )
+      return;
+    try {
+      await orderAPI.deleteOrder(orderId);
+      toast.success("Order deleted");
+      fetchOrders();
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to delete order");
     }
   };
 
@@ -200,8 +215,10 @@ const OrdersPage = () => {
                     <div className="space-y-2">
                       {order.items.map((item, idx) => {
                         const product = item.productId;
-                        const discountedPrice =
-                          item.price * (1 - (item.discount || 0) / 100);
+                        const discountedPrice = Math.round(
+                          item.price * (1 - (item.discount || 0) / 100),
+                        );
+                        const lineTotal = discountedPrice * item.quantity;
                         return (
                           <div
                             key={idx}
@@ -220,8 +237,14 @@ const OrdersPage = () => {
                                 <p className="font-medium">
                                   {product?.name || "Unknown Product"}
                                 </p>
+                                {item.discount > 0 && (
+                                  <p className="text-xs text-text-muted line-through">
+                                    Rs. {item.price}/{product?.unit}
+                                  </p>
+                                )}
                                 <p className="text-xs text-text-muted">
-                                  Qty: {item.quantity}
+                                  Rs. {discountedPrice}/{product?.unit} &times;{" "}
+                                  {item.quantity}
                                   {item.discount > 0 && (
                                     <span className="ml-2 text-green-600">
                                       -{item.discount}% off
@@ -230,21 +253,26 @@ const OrdersPage = () => {
                                 </p>
                               </div>
                             </div>
-                            <p className="font-semibold">
-                              Rs.{Math.round(discountedPrice * item.quantity)}
-                            </p>
+                            <p className="font-semibold">Rs.{lineTotal}</p>
                           </div>
                         );
                       })}
                     </div>
 
-                    {/* Delivery Info */}
-                    {order.deliveryLocation?.address && (
+                    {/* Delivery / Takeaway Info */}
+                    {order.orderType === "takeaway" ? (
+                      <div className="text-xs text-text-muted border-t border-border pt-2 flex items-center gap-1.5">
+                        <Store size={12} className="text-amber-600" />
+                        <span className="font-medium text-amber-700">
+                          Takeaway - Store Pickup
+                        </span>
+                      </div>
+                    ) : order.deliveryLocation?.address ? (
                       <div className="text-xs text-text-muted border-t border-border pt-2">
                         <span className="font-medium text-text">Delivery:</span>{" "}
                         {order.deliveryLocation.address}
                       </div>
-                    )}
+                    ) : null}
 
                     {/* Payment Info */}
                     <div className="text-xs text-text-muted flex items-center gap-3">
@@ -272,6 +300,16 @@ const OrdersPage = () => {
                         className="w-full py-2 text-sm font-medium text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors"
                       >
                         Cancel Order
+                      </button>
+                    )}
+
+                    {/* Delete button for cancelled orders */}
+                    {order.status === "cancelled" && (
+                      <button
+                        onClick={() => handleDelete(order._id)}
+                        className="w-full py-2 text-sm font-medium text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors"
+                      >
+                        Delete Order
                       </button>
                     )}
                   </div>

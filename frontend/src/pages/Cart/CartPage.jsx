@@ -13,6 +13,8 @@ import {
   ArrowRight,
   Package,
   CreditCard,
+  Truck,
+  Store,
 } from "lucide-react";
 import LocationPicker from "../../components/ui/LocationPicker";
 import OptimizedImage from "../../components/ui/OptimizedImage";
@@ -34,6 +36,7 @@ const CartPage = () => {
   const [lat, setLat] = useState(0);
   const [lng, setLng] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState("cod");
+  const [orderType, setOrderType] = useState("delivery");
 
   if (!isAuthenticated) {
     return (
@@ -131,19 +134,33 @@ const CartPage = () => {
                     {product?.category} · {product?.unit}
                   </p>
                   <div className="mt-2">
-                    <span className="font-bold text-sm sm:text-base">
-                      Rs.{" "}
-                      {Math.round(
-                        item.price *
-                          (1 - (item.discount || 0) / 100) *
-                          item.quantity,
-                      )}
-                    </span>
                     {item.discount > 0 && (
-                      <span className="ml-2 text-xs text-green-600 font-medium">
-                        -{item.discount}%
-                      </span>
+                      <p className="text-xs text-text-muted line-through">
+                        Rs. {item.price}/{product?.unit}
+                      </p>
                     )}
+                    <div className="flex items-baseline gap-1 flex-wrap">
+                      <span className="text-xs text-text-muted">
+                        Rs.{" "}
+                        {Math.round(
+                          item.price * (1 - (item.discount || 0) / 100),
+                        )}
+                        /{product?.unit} &times; {item.quantity} =
+                      </span>
+                      <span className="font-bold text-sm sm:text-base">
+                        Rs.{" "}
+                        {Math.round(
+                          item.price *
+                            (1 - (item.discount || 0) / 100) *
+                            item.quantity,
+                        )}
+                      </span>
+                      {item.discount > 0 && (
+                        <span className="text-xs text-green-600 font-medium">
+                          -{item.discount}%
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -190,9 +207,39 @@ const CartPage = () => {
             <h2 className="text-lg font-bold mb-4">Cart Summary</h2>
 
             <div className="space-y-3 mb-6">
-              <div className="flex justify-between text-sm">
-                <span className="text-text-muted">Subtotal</span>
-                <span className="font-medium">Rs. {cartTotal.toFixed(2)}</span>
+              {/* Item-level breakdown */}
+              <div className="space-y-2">
+                {cartItems.map((item) => {
+                  const unitPrice = Math.round(
+                    item.price * (1 - (item.discount || 0) / 100),
+                  );
+                  return (
+                    <div
+                      key={item._id}
+                      className="flex justify-between text-xs text-text-muted"
+                    >
+                      <span className="truncate mr-2">
+                        {item.productId?.name} ({item.quantity} &times; Rs.{" "}
+                        {unitPrice}/{item.productId?.unit})
+                      </span>
+                      <span className="font-medium whitespace-nowrap">
+                        Rs. {unitPrice * item.quantity}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="border-t border-border pt-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-text-muted">
+                    Subtotal ({cartItems.reduce((s, i) => s + i.quantity, 0)}{" "}
+                    items)
+                  </span>
+                  <span className="font-medium">
+                    Rs. {cartTotal.toFixed(2)}
+                  </span>
+                </div>
               </div>
               <div className="border-t border-border pt-3">
                 <div className="flex justify-between">
@@ -215,35 +262,134 @@ const CartPage = () => {
 
             {showCheckout && (
               <div className="border-t border-border pt-4 mt-4 space-y-3">
-                <h3 className="font-semibold text-sm">Delivery Location</h3>
-                <LocationPicker
-                  onLocationChange={({
-                    lat: newLat,
-                    lng: newLng,
-                    address: newAddr,
-                  }) => {
-                    setLat(newLat);
-                    setLng(newLng);
-                    setAddress(newAddr);
-                  }}
-                  initialAddress={address}
-                />
+                {/* Order Type Selector */}
                 <div>
-                  <label className="block text-xs font-medium text-text-muted mb-1">
+                  <label className="block text-xs font-medium text-text-muted mb-2">
+                    Order Type
+                  </label>
+                  <div className="flex gap-3">
+                    <label
+                      className={`flex-1 flex items-center gap-2 px-4 py-3 rounded-xl border cursor-pointer transition-all ${
+                        orderType === "delivery"
+                          ? "border-primary bg-primary/5 ring-1 ring-primary"
+                          : "border-border hover:border-gray-300"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="orderType"
+                        value="delivery"
+                        checked={orderType === "delivery"}
+                        onChange={(e) => setOrderType(e.target.value)}
+                        className="accent-primary"
+                      />
+                      <Truck size={16} className="text-text-muted" />
+                      <span className="text-sm font-medium">Delivery</span>
+                    </label>
+                    <label
+                      className={`flex-1 flex items-center gap-2 px-4 py-3 rounded-xl border cursor-pointer transition-all ${
+                        orderType === "takeaway"
+                          ? "border-primary bg-primary/5 ring-1 ring-primary"
+                          : "border-border hover:border-gray-300"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="orderType"
+                        value="takeaway"
+                        checked={orderType === "takeaway"}
+                        onChange={(e) => setOrderType(e.target.value)}
+                        className="accent-primary"
+                      />
+                      <Store size={16} className="text-text-muted" />
+                      <span className="text-sm font-medium">Takeaway</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Delivery Location (only for delivery) */}
+                {orderType === "delivery" ? (
+                  <>
+                    <h3 className="font-semibold text-sm">Delivery Location</h3>
+                    <LocationPicker
+                      onLocationChange={({
+                        lat: newLat,
+                        lng: newLng,
+                        address: newAddr,
+                      }) => {
+                        setLat(newLat);
+                        setLng(newLng);
+                        setAddress(newAddr);
+                      }}
+                      initialAddress={address}
+                    />
+                  </>
+                ) : (
+                  <div className="rounded-xl bg-amber-50 border border-amber-200 p-4">
+                    <div className="flex items-start gap-3">
+                      <Store
+                        size={18}
+                        className="text-amber-600 mt-0.5 shrink-0"
+                      />
+                      <div>
+                        <p className="text-sm font-semibold text-amber-800">
+                          Store Pickup
+                        </p>
+                        <p className="text-xs text-amber-700 mt-1">
+                          Your order will be prepared and ready for pickup at
+                          our store. You&apos;ll receive a notification when
+                          it&apos;s ready.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <label className="block text-xs font-medium text-text-muted mb-2">
                     Payment Method
                   </label>
-                  <select
-                    value={paymentMethod}
-                    onChange={(e) => setPaymentMethod(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:border-primary"
-                  >
-                    <option value="cod">Cash on Delivery</option>
-                    <option value="esewa">eSewa</option>
-                  </select>
+                  <div className="flex gap-3">
+                    <label
+                      className={`flex-1 flex items-center gap-2 px-4 py-3 rounded-xl border cursor-pointer transition-all ${
+                        paymentMethod === "cod"
+                          ? "border-primary bg-primary/5 ring-1 ring-primary"
+                          : "border-border hover:border-gray-300"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="paymentMethod"
+                        value="cod"
+                        checked={paymentMethod === "cod"}
+                        onChange={(e) => setPaymentMethod(e.target.value)}
+                        className="accent-primary"
+                      />
+                      <span className="text-sm font-medium">
+                        Cash on Delivery
+                      </span>
+                    </label>
+                    <label
+                      className={`flex-1 flex items-center gap-2 px-4 py-3 rounded-xl border cursor-pointer transition-all ${
+                        paymentMethod === "esewa"
+                          ? "border-primary bg-primary/5 ring-1 ring-primary"
+                          : "border-border hover:border-gray-300"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="paymentMethod"
+                        value="esewa"
+                        checked={paymentMethod === "esewa"}
+                        onChange={(e) => setPaymentMethod(e.target.value)}
+                        className="accent-primary"
+                      />
+                      <span className="text-sm font-medium">eSewa</span>
+                    </label>
+                  </div>
                 </div>
                 <button
                   onClick={async () => {
-                    if (!address.trim()) {
+                    if (orderType === "delivery" && !address.trim()) {
                       toast.error("Please enter a delivery address");
                       return;
                     }
@@ -251,9 +397,13 @@ const CartPage = () => {
                     try {
                       if (paymentMethod === "esewa") {
                         const res = await orderAPI.initiateEsewa({
-                          address: address.trim(),
-                          lat,
-                          lng,
+                          address:
+                            orderType === "takeaway"
+                              ? "Takeaway - Store Pickup"
+                              : address.trim(),
+                          lat: orderType === "takeaway" ? 0 : lat,
+                          lng: orderType === "takeaway" ? 0 : lng,
+                          orderType,
                         });
                         const { esewaFormData, esewaPaymentUrl } =
                           res.data.data;
@@ -279,12 +429,20 @@ const CartPage = () => {
 
                       // COD flow
                       await orderAPI.place({
-                        address: address.trim(),
-                        lat,
-                        lng,
+                        address:
+                          orderType === "takeaway"
+                            ? "Takeaway - Store Pickup"
+                            : address.trim(),
+                        lat: orderType === "takeaway" ? 0 : lat,
+                        lng: orderType === "takeaway" ? 0 : lng,
                         paymentMethod: "cod",
+                        orderType,
                       });
-                      toast.success("Order placed successfully!");
+                      toast.success(
+                        orderType === "takeaway"
+                          ? "Order placed! Ready for pickup soon."
+                          : "Order placed successfully!",
+                      );
                       await fetchCart();
                       navigate("/orders");
                     } catch (err) {

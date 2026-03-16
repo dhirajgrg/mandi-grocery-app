@@ -55,21 +55,34 @@ export const initiateEsewaPayment = catchAsync(async (req, res, next) => {
 
   const totalAmount = Math.round(calculateTotal(orderItems));
 
-  // Create the order with pending payment
-  const order = await Order.create({
+  // Reuse an existing unpaid eSewa order for this user to avoid duplicates
+  let order = await Order.findOne({
     userId: req.user._id,
-    items: orderItems,
-    totalAmount,
-    deliveryLocation: { lat: lat || 0, lng: lng || 0, address },
     paymentMethod: "esewa",
     paymentStatus: "unpaid",
     status: "pending",
   });
 
-  // Clear cart
-  cart.items = [];
-  cart.totalAmount = 0;
-  await cart.save();
+  if (order) {
+    // Update existing unpaid order with fresh cart data
+    order.items = orderItems;
+    order.totalAmount = totalAmount;
+    order.deliveryLocation = { lat: lat || 0, lng: lng || 0, address };
+    await order.save();
+  } else {
+    order = await Order.create({
+      userId: req.user._id,
+      items: orderItems,
+      totalAmount,
+      deliveryLocation: { lat: lat || 0, lng: lng || 0, address },
+      paymentMethod: "esewa",
+      paymentStatus: "unpaid",
+      status: "pending",
+    });
+  }
+
+  // Cart is NOT cleared here — it will be cleared only after eSewa payment is verified.
+  // This ensures the cart is preserved if the customer cancels on the payment gateway.
 
   // Build eSewa form data with UUID
   const { formData, transactionUuid, paymentUrl } =
@@ -142,6 +155,14 @@ export const verifyEsewaPayment = catchAsync(async (req, res, next) => {
   order.transactionId = transaction_code || transaction_uuid;
   await order.save();
   await order.populate("items.productId");
+
+  // Clear the customer's cart now that payment is confirmed
+  const cart = await Cart.findOne({ userId: order.userId });
+  if (cart) {
+    cart.items = [];
+    cart.totalAmount = 0;
+    await cart.save();
+  }
 
   res
     .status(200)

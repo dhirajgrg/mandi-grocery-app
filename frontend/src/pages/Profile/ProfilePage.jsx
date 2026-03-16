@@ -12,6 +12,9 @@ import {
   Camera,
   MailWarning,
   Loader2,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 
 const ProfilePage = () => {
@@ -27,7 +30,33 @@ const ProfilePage = () => {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [resending, setResending] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [newName, setNewName] = useState(user?.name || "");
+  const [savingName, setSavingName] = useState(false);
   const fileInputRef = useRef(null);
+
+  const handleNameSave = async () => {
+    if (!newName.trim()) {
+      toast.error("Name cannot be empty");
+      return;
+    }
+    if (newName.trim() === user?.name) {
+      setEditingName(false);
+      return;
+    }
+    setSavingName(true);
+    try {
+      const res = await authAPI.updateName({ name: newName.trim() });
+      const updatedUser = res.data.data || res.data;
+      setUser((prev) => ({ ...prev, name: updatedUser.name }));
+      toast.success("Name updated!");
+      setEditingName(false);
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to update name");
+    } finally {
+      setSavingName(false);
+    }
+  };
 
   const handleProfilePicUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -118,12 +147,55 @@ const ProfilePage = () => {
         </div>
 
         <div className="space-y-3">
-          <div className="flex items-center gap-3 px-4 py-3 bg-surface-light rounded-xl">
+          <div className="relative flex items-center gap-3 px-4 py-3 bg-surface-light rounded-xl">
             <User size={18} className="text-text-muted shrink-0" />
-            <div>
+            <div className="flex-1 min-w-0">
               <p className="text-xs text-text-muted">Full Name</p>
-              <p className="text-sm font-medium">{user?.name}</p>
+              {editingName ? (
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    type="text"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    autoFocus
+                    className="flex-1 px-2 py-1 text-sm font-medium rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-black/10"
+                  />
+                  <button
+                    onClick={handleNameSave}
+                    disabled={savingName}
+                    className="p-1 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                  >
+                    {savingName ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <Check size={16} />
+                    )}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingName(false);
+                      setNewName(user?.name || "");
+                    }}
+                    className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ) : (
+                <p className="text-sm font-medium">{user?.name}</p>
+              )}
             </div>
+            {!editingName && (
+              <button
+                onClick={() => {
+                  setNewName(user?.name || "");
+                  setEditingName(true);
+                }}
+                className="absolute top-2 right-2 p-1.5 text-text-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
+              >
+                <Pencil size={14} />
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-3 px-4 py-3 bg-surface-light rounded-xl">
             <Mail size={18} className="text-text-muted shrink-0" />

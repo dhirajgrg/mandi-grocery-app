@@ -6,6 +6,7 @@ export const orderAPI = {
   getMyOrders: () => API.get("/api/v1/orders"),
   getById: (id) => API.get(`/api/v1/orders/${id}`),
   cancel: (id) => API.patch(`/api/v1/orders/${id}/cancel`),
+  deleteOrder: (id) => API.delete(`/api/v1/orders/${id}`),
 
   // Admin
   getAll: (status) =>

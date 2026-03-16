@@ -19,4 +19,5 @@ export const authAPI = {
     API.post("/api/v1/auth/profile-pic", formData, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
+  updateName: (data) => API.patch("/api/v1/auth/update-name", data),
 };

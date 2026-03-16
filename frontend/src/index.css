@@ -22,9 +22,35 @@
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
 }
 
+/* Dark mode overrides */
+.dark {
+  --color-surface: #111111;
+  --color-surface-light: #1a1a1a;
+  --color-surface-lighter: #252525;
+  --color-background: #000000;
+  --color-text: #e4e4e7;
+  --color-text-muted: #9ca3af;
+  --color-border: #2a2a2a;
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--color-surface-lighter) transparent;
+}
+
+/* Smooth theme transition on all elements */
+*,
+*::before,
+*::after {
+  transition:
+    background-color 0.3s ease,
+    border-color 0.3s ease,
+    color 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
@@ -56,6 +82,79 @@ button {
   border-bottom: 1px solid var(--color-border);
 }
 
+.dark .glass {
+  background: rgba(17, 17, 17, 0.95);
+}
+
+/* Override hardcoded backgrounds in dark mode */
+.dark .bg-white {
+  background-color: var(--color-surface) !important;
+}
+
+.dark .bg-white\/70 {
+  background-color: rgba(17, 17, 17, 0.7) !important;
+}
+
+.dark .bg-white\/80 {
+  background-color: rgba(17, 17, 17, 0.8) !important;
+}
+
+.dark .bg-gray-50,
+.dark .bg-gray-100,
+.dark .bg-green-50,
+.dark .bg-amber-50,
+.dark .bg-yellow-50,
+.dark .bg-blue-50,
+.dark .bg-indigo-50,
+.dark .bg-orange-50,
+.dark .bg-red-50,
+.dark .bg-red-100,
+.dark .bg-green-100 {
+  background-color: var(--color-surface-light) !important;
+}
+
+.dark .hover\:bg-gray-50:hover,
+.dark .hover\:bg-gray-200:hover,
+.dark .hover\:bg-red-50:hover,
+.dark .hover\:bg-green-50:hover {
+  background-color: var(--color-surface-lighter) !important;
+}
+
+.dark .border-gray-100,
+.dark .border-amber-200,
+.dark .border-red-200 {
+  border-color: var(--color-border) !important;
+}
+
+.dark .hover\:border-gray-300:hover {
+  border-color: var(--color-border) !important;
+}
+
+.dark .text-gray-500,
+.dark .text-gray-600,
+.dark .text-amber-800 {
+  color: var(--color-text-muted) !important;
+}
+
+.dark .text-gray-700,
+.dark .text-gray-900 {
+  color: var(--color-text) !important;
+}
+
+/* Dark mode input/select styling */
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: var(--color-surface-light) !important;
+  color: var(--color-text) !important;
+  border-color: var(--color-border) !important;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: var(--color-text-muted) !important;
+}
+
 @keyframes shimmer {
   0% {
     background-position: -200% 0;
@@ -75,4 +174,151 @@ button {
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
   border-radius: 8px;
+}
+
+/* ===== Micro-interaction Animations ===== */
+
+/* Fade-in for page content */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Page transition on route change */
+.page-transition {
+  animation: pageEnter 0.3s ease-out;
+}
+
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Cards & bordered containers */
+.rounded-2xl,
+.rounded-xl {
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+/* Card hover lift */
+.border.rounded-2xl:hover,
+.border.rounded-xl:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.dark .border.rounded-2xl:hover,
+.dark .border.rounded-xl:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* Button press effect */
+button:active:not(:disabled),
+a.bg-primary:active {
+  transform: scale(0.97);
+}
+
+/* Links lift-down on hover in footer */
+footer a,
+footer span {
+  text-decoration: none !important;
+}
+
+/* Mobile menu slide-down */
+nav > div[class*="border-t"] {
+  animation: slideDown 0.2s ease-out;
+}
+
+/* Badge pop-in */
+@keyframes popIn {
+  0% {
+    transform: scale(0);
+  }
+  70% {
+    transform: scale(1.15);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.rounded-full[class*="bg-red-500"],
+.rounded-full[class*="bg-primary"] {
+  animation: popIn 0.3s ease-out;
+}
+
+/* Smooth focus ring for inputs */
+input:focus,
+select:focus,
+textarea:focus {
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+/* Image hover zoom (product cards already have this, reinforce globally) */
+img {
+  transition: transform 0.3s ease;
+}
+
+/* Toast notification entrance */
+[data-sonner-toast],
+[role="status"] {
+  animation: slideDown 0.3s ease-out;
+}
+
+/* Checkout section reveal */
+.border-t[class*="pt-4"] {
+  animation: fadeInUp 0.25s ease-out;
+}
+
+/* Spinner smoothness */
+.animate-spin {
+  transition: opacity 0.2s ease;
 }

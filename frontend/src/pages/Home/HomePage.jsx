@@ -327,12 +327,12 @@ const HomePage = () => {
         <section className="bg-surface-light">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10">
             <h2 className="text-2xl font-bold mb-6">Shop by Category</h2>
-            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none">
+            <div className="flex gap-3 overflow-x-auto pt-1 pb-3 scrollbar-none">
               {categories.map((cat) => (
                 <Link
                   key={cat}
                   to={`/products?category=${encodeURIComponent(cat)}`}
-                  className="shrink-0 px-6 py-3 rounded-xl bg-white border border-border text-sm font-semibold hover:border-primary hover:text-primary hover:shadow-sm transition-all"
+                  className="shrink-0 px-6 py-3 rounded-xl bg-white border border-border text-sm font-semibold hover:border-primary hover:text-primary hover:-translate-y-0.5 hover:shadow-md active:scale-95 transition-all duration-200"
                 >
                   {cat}
                 </Link>
@@ -353,7 +353,7 @@ const HomePage = () => {
           </div>
           <Link
             to="/products"
-            className="text-sm font-medium text-primary hover:underline inline-flex items-center gap-1"
+            className="text-sm font-medium text-primary hover:underline inline-flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 transition-all"
           >
             See all <ArrowRight size={14} />
           </Link>
@@ -366,10 +366,10 @@ const HomePage = () => {
             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
               <button
                 onClick={() => setSelectedCategory("")}
-                className={`shrink-0 px-4 py-2 rounded-full text-xs font-medium transition-all ${
+                className={`shrink-0 px-4 py-2 rounded-full text-xs font-medium cursor-pointer hover:scale-105 active:scale-95 transition-all ${
                   !selectedCategory
                     ? "bg-primary text-white shadow-sm shadow-primary/25"
-                    : "bg-gray-100 text-gray-500 hover:text-gray-700"
+                    : "bg-gray-100 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
                 }`}
               >
                 All
@@ -380,10 +380,10 @@ const HomePage = () => {
                   onClick={() =>
                     setSelectedCategory(cat === selectedCategory ? "" : cat)
                   }
-                  className={`shrink-0 px-4 py-2 rounded-full text-xs font-medium transition-all ${
+                  className={`shrink-0 px-4 py-2 rounded-full text-xs font-medium cursor-pointer hover:scale-105 active:scale-95 transition-all ${
                     selectedCategory === cat
                       ? "bg-primary text-white shadow-sm shadow-primary/25"
-                      : "bg-gray-100 text-gray-500 hover:text-gray-700"
+                      : "bg-gray-100 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
                   }`}
                 >
                   {cat}
@@ -416,10 +416,10 @@ const HomePage = () => {
 
             <button
               onClick={() => setFilterOrganic(!filterOrganic)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer hover:scale-105 active:scale-95 transition-all ${
                 filterOrganic
                   ? "bg-green-600 text-white"
-                  : "bg-gray-100 text-gray-500 hover:text-gray-700"
+                  : "bg-gray-100 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
               }`}
             >
               🌿 Organic
@@ -427,10 +427,10 @@ const HomePage = () => {
 
             <button
               onClick={() => setFilterFresh(!filterFresh)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer hover:scale-105 active:scale-95 transition-all ${
                 filterFresh
                   ? "bg-sky-500 text-white"
-                  : "bg-gray-100 text-gray-500 hover:text-gray-700"
+                  : "bg-gray-100 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
               }`}
             >
               ✨ Fresh
@@ -439,7 +439,7 @@ const HomePage = () => {
             {activeFilterCount > 0 && (
               <button
                 onClick={clearAllFilters}
-                className="text-xs text-error hover:underline ml-auto"
+                className="text-xs text-error hover:underline ml-auto cursor-pointer hover:scale-105 active:scale-95 transition-all"
               >
                 Clear all
               </button>
@@ -457,7 +457,7 @@ const HomePage = () => {
           <div className="text-center mt-8">
             <Link
               to="/products"
-              className="inline-flex items-center gap-2 px-8 py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary-dark transition-all"
+              className="inline-flex items-center gap-2 px-8 py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary-dark hover:scale-105 active:scale-95 cursor-pointer transition-all"
             >
               View All Products <ArrowRight size={18} />
             </Link>

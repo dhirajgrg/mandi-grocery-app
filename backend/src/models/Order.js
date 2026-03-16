@@ -3,7 +3,7 @@ import { Schema, model } from "mongoose";
 const orderSchema = new Schema(
   {
     orderNumber: {
-      type: Number,
+      type: String,
       unique: true,
     },
 
@@ -40,6 +40,12 @@ const orderSchema = new Schema(
       required: true,
     },
 
+    orderType: {
+      type: String,
+      enum: ["delivery", "takeaway"],
+      default: "delivery",
+    },
+
     deliveryLocation: {
       lat: Number,
       lng: Number,
@@ -74,17 +80,47 @@ const orderSchema = new Schema(
     transactionId: {
       type: String,
     },
+
+    deletedByUser: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true },
 );
 
-// Auto-increment orderNumber starting from 100
+// Generate daily order number: YYYYMMDD-NNN (resets each day)
 orderSchema.pre("save", async function () {
   if (this.isNew && !this.orderNumber) {
-    const lastOrder = await this.constructor
-      .findOne({}, { orderNumber: 1 }, { sort: { orderNumber: -1 } })
+    const now = new Date();
+    const datePrefix =
+      String(now.getFullYear()) +
+      String(now.getMonth() + 1).padStart(2, "0") +
+      String(now.getDate()).padStart(2, "0");
+
+    const todayStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
+    const todayEnd = new Date(todayStart);
+    todayEnd.setDate(todayEnd.getDate() + 1);
+
+    const lastTodayOrder = await this.constructor
+      .findOne(
+        { orderNumber: { $regex: `^${datePrefix}-` } },
+        { orderNumber: 1 },
+        { sort: { orderNumber: -1 } },
+      )
       .lean();
-    this.orderNumber = lastOrder?.orderNumber ? lastOrder.orderNumber + 1 : 100;
+
+    let seq = 1;
+    if (lastTodayOrder) {
+      const lastSeq = parseInt(lastTodayOrder.orderNumber.split("-")[1], 10);
+      seq = lastSeq + 1;
+    }
+
+    this.orderNumber = `${datePrefix}-${String(seq).padStart(3, "0")}`;
   }
 });
 

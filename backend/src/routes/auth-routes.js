@@ -11,6 +11,7 @@ import {
   getAllUsers,
   deleteUser,
   updateProfilePic,
+  updateName,
   updateUser,
 } from "../controllers/auth-controllers.js";
 import { protect, allowRoles } from "../middlewares/auth-middlewares.js";
@@ -41,5 +42,8 @@ router.post(
   profilePicUpload.single("profilePic"),
   updateProfilePic,
 );
+
+// Update name (any authenticated user)
+router.patch("/update-name", protect, updateName);
 
 export default router;

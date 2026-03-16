@@ -5,6 +5,7 @@ import {
   getMyOrders,
   getOrderById,
   cancelOrder,
+  deleteOrder,
   getAllOrders,
   updateOrderStatus,
   getAdminStats,
@@ -23,6 +24,7 @@ router.patch("/admin/:id/status", allowRoles("admin"), updateOrderStatus);
 router.post("/", allowRoles("customer"), placeOrder);
 router.get("/", allowRoles("customer"), getMyOrders);
 router.patch("/:id/cancel", allowRoles("customer"), cancelOrder);
+router.delete("/:id", allowRoles("customer"), deleteOrder);
 router.get("/:id", getOrderById);
 
 export default router;

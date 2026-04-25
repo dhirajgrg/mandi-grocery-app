@@ -250,7 +250,7 @@ const HomePage = () => {
                   </div>
                 </div>
               ) : (
-                <div className="bg-gradient-to-br from-primary/10 via-white to-primary/5">
+                <div className="bg-gradient-to-br from-green-100 via-white to-green-50">
                   <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-14 sm:py-20">
                     <div className="text-center max-w-2xl mx-auto">
                       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold mb-4">

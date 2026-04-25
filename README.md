@@ -2,7 +2,21 @@
 
 A full-stack e-commerce grocery delivery application built with modern web technologies. Mandi provides a seamless shopping experience for customers and comprehensive management tools for administrators.
 
-\*DEMO OF APP -[DEMO LINK](https://mandi-three.vercel.app/)
+
+ ** User login details
+
+    - phone : 9899999999
+    - password : test1234
+
+# DEMO OF APP -[ Link here](https://mandi-three.vercel.app/)
+# User view
+
+![alt text](image-1.png)
+
+
+# Admin dashboard
+![alt text](image-4.png)
+![alt text](image-3.png)
 
 ## 📋 Table of Contents
 

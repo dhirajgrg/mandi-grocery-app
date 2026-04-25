@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
+import helmet from 'helmet'
 
 import healthRoutes from "./routes/health-routes.js";
 import authRoutes from "./routes/auth-routes.js";
@@ -16,7 +17,7 @@ import bannerRoutes from "./routes/banner-routes.js";
 import settingsRoutes from "./routes/settings-routes.js";
 
 const app = express();
-
+app.use(helmet())
 app.use(
   cors({
     origin: process.env.FRONTEND_URL || "http://localhost:5173",

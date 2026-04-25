@@ -458,7 +458,7 @@ This project is licensed under the ISC License - see the LICENSE file for detail
 
 ## 📧 Support
 
-For support, email support@mandigrocery.com or open an issue on GitHub.
+For support, email gdhiraj030@gmail.com or open an issue on GitHub.
 
 ---
 

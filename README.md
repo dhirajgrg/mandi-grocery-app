@@ -8,6 +8,11 @@ A full-stack e-commerce grocery delivery application built with modern web techn
     - phone : 9899999999
     - password : test1234
 
+ ** Admin login details
+
+    - phone : 9768033768
+    - password : adminadmin
+
 # DEMO OF APP -[ Link here](https://mandi-three.vercel.app/)
 # User view
 

@@ -1,6 +1,19 @@
-import { Mail, Phone, MapPin, Clock } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Phone, Clock } from "lucide-react";
+import { authAPI } from "../../api/authAPI";
 
 const ContactPage = () => {
+  const [contact, setContact] = useState(null);
+
+  useEffect(() => {
+    authAPI
+      .getAdminContact()
+      .then((res) => setContact(res.data.data?.contact || null))
+      .catch(() => {});
+  }, []);
+
+  const phone = contact?.mobile || "9800000000";
+
   return (
     <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
@@ -13,35 +26,25 @@ const ContactPage = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Contact Info */}
         <div className="space-y-6">
-          <div className="flex items-start gap-4 p-5 rounded-2xl bg-white border border-border">
+          <a
+            href={`tel:+977${phone}`}
+            className="flex items-start gap-4 p-5 rounded-2xl bg-white border border-border hover:border-primary/40 hover:shadow-md transition-all group"
+          >
             <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
               <Phone size={20} className="text-primary" />
             </div>
             <div>
-              <h3 className="font-semibold mb-1">Phone</h3>
-              <p className="text-text-muted text-sm">+977 9800000000</p>
+              <h3 className="font-semibold mb-1 group-hover:text-primary transition-colors">
+                Call Us
+              </h3>
+              <p className="text-text-muted text-sm">
+                <span className="font-medium text-text">+977</span> {phone}
+              </p>
+              <p className="text-xs text-primary mt-0.5">
+                Tap to call admin directly
+              </p>
             </div>
-          </div>
-
-          <div className="flex items-start gap-4 p-5 rounded-2xl bg-white border border-border">
-            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-              <Mail size={20} className="text-primary" />
-            </div>
-            <div>
-              <h3 className="font-semibold mb-1">Email</h3>
-              <p className="text-text-muted text-sm">support@mandi.com</p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-4 p-5 rounded-2xl bg-white border border-border">
-            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-              <MapPin size={20} className="text-primary" />
-            </div>
-            <div>
-              <h3 className="font-semibold mb-1">Address</h3>
-              <p className="text-text-muted text-sm">Kathmandu, Nepal</p>
-            </div>
-          </div>
+          </a>
 
           <div className="flex items-start gap-4 p-5 rounded-2xl bg-white border border-border">
             <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
@@ -81,11 +84,11 @@ const ContactPage = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-text-muted mb-1">
-                Email
+                Phone Number
               </label>
               <input
-                type="email"
-                placeholder="you@example.com"
+                type="tel"
+                placeholder="98XXXXXXXX"
                 className="w-full px-4 py-2.5 rounded-xl bg-surface-light border border-border text-text text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all"
               />
             </div>

@@ -55,7 +55,7 @@ const TermsOfServicePage = () => {
               You are responsible for maintaining the security of your account
               credentials.
             </li>
-            <li>You must verify your email address before placing orders.</li>
+            <li>You must verify your mobile number before placing orders.</li>
             <li>
               We reserve the right to suspend or terminate accounts that violate
               these terms.

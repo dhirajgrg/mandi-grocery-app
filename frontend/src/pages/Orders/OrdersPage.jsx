@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import {
   ClipboardList,
@@ -12,12 +12,16 @@ import {
   ChevronUp,
   ArrowRight,
   Store,
+  RotateCcw,
+  Trash2,
 } from "lucide-react";
 import { orderAPI } from "../../api/orderAPI";
 import { useSocket } from "../../context/SocketContext";
 import { useAuth } from "../../context/AuthContext";
+import { useCart } from "../../context/CartContext";
 import LoadingSpinner from "../../components/ui/LoadingSpinner";
 import OptimizedImage from "../../components/ui/OptimizedImage";
+import ConfirmModal from "../../components/ui/ConfirmModal";
 
 const STATUS_CONFIG = {
   pending: {
@@ -52,14 +56,81 @@ const STATUS_CONFIG = {
   },
 };
 
+const STATUS_STEPS = [
+  { key: "pending", label: "Pending", icon: Clock },
+  { key: "confirmed", label: "Confirmed", icon: CheckCircle },
+  { key: "packed", label: "Packed", icon: Package },
+  { key: "out_for_delivery", label: "On the Way", icon: Truck },
+  { key: "delivered", label: "Delivered", icon: CheckCircle },
+];
+
+const OrderStatusTracker = ({ status }) => {
+  const currentIdx = STATUS_STEPS.findIndex((s) => s.key === status);
+
+  return (
+    <div className="border-t border-border pt-3">
+      <div className="flex items-center justify-between">
+        {STATUS_STEPS.map((step, idx) => {
+          const isCompleted = idx <= currentIdx;
+          const isCurrent = idx === currentIdx;
+          const StepIcon = step.icon;
+
+          return (
+            <div
+              key={step.key}
+              className="flex flex-col items-center flex-1 relative"
+            >
+              {idx > 0 && (
+                <div
+                  className={`absolute top-3.5 right-1/2 w-full h-0.5 -z-10 ${
+                    idx <= currentIdx ? "bg-green-500" : "bg-gray-200"
+                  }`}
+                />
+              )}
+              <div
+                className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${
+                  isCurrent
+                    ? "bg-primary text-white ring-2 ring-primary/30"
+                    : isCompleted
+                      ? "bg-green-500 text-white"
+                      : "bg-gray-100 text-gray-400"
+                }`}
+              >
+                <StepIcon size={14} />
+              </div>
+              <span
+                className={`text-[9px] mt-1 font-medium text-center ${
+                  isCurrent
+                    ? "text-primary"
+                    : isCompleted
+                      ? "text-green-600"
+                      : "text-text-muted"
+                }`}
+              >
+                {step.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const OrdersPage = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState(null);
+  const [confirmModal, setConfirmModal] = useState({
+    open: false,
+    title: "",
+    message: "",
+    onConfirm: null,
+  });
   const { onEvent } = useSocket();
   const { user } = useAuth();
-
-  const isEmailVerified = user?.emailVerified !== false;
+  const { fetchCart } = useCart();
+  const navigate = useNavigate();
 
   const fetchOrders = async () => {
     try {
@@ -78,61 +149,61 @@ const OrdersPage = () => {
 
   // Listen for real-time order status changes
   useEffect(() => {
-    return onEvent("order_status_changed", (data) => {
-      const statusLabel = STATUS_CONFIG[data.status]?.label || data.status;
-      toast(`Order #${data.orderNumber} is now ${statusLabel}`, {
-        icon: "🔔",
-        style: { borderLeft: "4px solid #16a34a" },
-        duration: 5000,
-      });
+    return onEvent("order_status_changed", () => {
       fetchOrders();
     });
   }, [onEvent]);
 
-  const handleCancel = async (orderId) => {
-    if (!window.confirm("Are you sure you want to cancel this order?")) return;
-    try {
-      await orderAPI.cancel(orderId);
-      toast.success("Order cancelled");
-      fetchOrders();
-    } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to cancel order");
-    }
+  const handleCancel = (orderId) => {
+    setConfirmModal({
+      open: true,
+      title: "Cancel Order",
+      message: "Are you sure you want to cancel this order?",
+      onConfirm: async () => {
+        try {
+          await orderAPI.cancel(orderId);
+          toast.success("Order cancelled");
+          fetchOrders();
+        } catch (error) {
+          toast.error(
+            error.response?.data?.message || "Failed to cancel order",
+          );
+        }
+      },
+    });
   };
 
-  const handleDelete = async (orderId) => {
-    if (
-      !window.confirm("Are you sure you want to delete this cancelled order?")
-    )
-      return;
+  const handleDelete = (orderId) => {
+    setConfirmModal({
+      open: true,
+      title: "Delete Order",
+      message: "Are you sure you want to delete this cancelled order?",
+      onConfirm: async () => {
+        try {
+          await orderAPI.deleteOrder(orderId);
+          toast.success("Order deleted");
+          fetchOrders();
+        } catch (error) {
+          toast.error(
+            error.response?.data?.message || "Failed to delete order",
+          );
+        }
+      },
+    });
+  };
+
+  const handleReorder = async (orderId) => {
     try {
-      await orderAPI.deleteOrder(orderId);
-      toast.success("Order deleted");
-      fetchOrders();
+      const res = await orderAPI.reorder(orderId);
+      toast.success(res.data.message || "Items added to cart");
+      await fetchCart();
+      navigate("/cart");
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to delete order");
+      toast.error(error.response?.data?.message || "Failed to reorder");
     }
   };
 
   if (loading) return <LoadingSpinner text="Loading orders..." />;
-
-  if (!isEmailVerified) {
-    return (
-      <div className="mx-auto max-w-3xl px-4 py-20 text-center">
-        <ClipboardList size={64} className="mx-auto text-text-muted/30 mb-4" />
-        <h2 className="text-2xl font-bold mb-2">Email Not Verified</h2>
-        <p className="text-text-muted mb-6">
-          Please verify your email to view and place orders.
-        </p>
-        <Link
-          to="/"
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-primary-dark transition-all"
-        >
-          Go to Home <ArrowRight size={16} />
-        </Link>
-      </div>
-    );
-  }
 
   return (
     <div className="mx-auto max-w-3xl px-4 sm:px-6 py-8">
@@ -259,6 +330,11 @@ const OrdersPage = () => {
                       })}
                     </div>
 
+                    {/* Status Progress Tracker */}
+                    {order.status !== "cancelled" && (
+                      <OrderStatusTracker status={order.status} />
+                    )}
+
                     {/* Delivery / Takeaway Info */}
                     {order.orderType === "takeaway" ? (
                       <div className="text-xs text-text-muted border-t border-border pt-2 flex items-center gap-1.5">
@@ -293,25 +369,42 @@ const OrdersPage = () => {
                       )}
                     </div>
 
-                    {/* Cancel button */}
-                    {order.status === "pending" && (
-                      <button
-                        onClick={() => handleCancel(order._id)}
-                        className="w-full py-2 text-sm font-medium text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors"
-                      >
-                        Cancel Order
-                      </button>
-                    )}
+                    {/* Action buttons */}
+                    <div className="flex gap-2 pt-1">
+                      {/* Cancel — only for pending orders */}
+                      {order.status === "pending" && (
+                        <button
+                          onClick={() => handleCancel(order._id)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors"
+                        >
+                          <XCircle size={15} />
+                          Cancel Order
+                        </button>
+                      )}
 
-                    {/* Delete button for cancelled orders */}
-                    {order.status === "cancelled" && (
-                      <button
-                        onClick={() => handleDelete(order._id)}
-                        className="w-full py-2 text-sm font-medium text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors"
-                      >
-                        Delete Order
-                      </button>
-                    )}
+                      {/* Reorder — for delivered or cancelled orders */}
+                      {(order.status === "delivered" ||
+                        order.status === "cancelled") && (
+                        <button
+                          onClick={() => handleReorder(order._id)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary-dark transition-colors"
+                        >
+                          <RotateCcw size={15} />
+                          Reorder
+                        </button>
+                      )}
+
+                      {/* Delete — only for cancelled orders */}
+                      {order.status === "cancelled" && (
+                        <button
+                          onClick={() => handleDelete(order._id)}
+                          className="flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors"
+                        >
+                          <Trash2 size={15} />
+                          Delete
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -319,6 +412,23 @@ const OrdersPage = () => {
           })}
         </div>
       )}
+
+      <ConfirmModal
+        open={confirmModal.open}
+        onClose={() =>
+          setConfirmModal({
+            open: false,
+            title: "",
+            message: "",
+            onConfirm: null,
+          })
+        }
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmText="Yes"
+        cancelText="No"
+      />
     </div>
   );
 };

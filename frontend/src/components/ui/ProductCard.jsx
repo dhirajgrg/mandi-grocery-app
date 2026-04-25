@@ -1,15 +1,25 @@
-import { Plus, Minus, Package, Leaf, Sparkles, MailCheck } from "lucide-react";
+import { useState } from "react";
+import {
+  Plus,
+  Minus,
+  Package,
+  Leaf,
+  Sparkles,
+  MailCheck,
+  Pencil,
+} from "lucide-react";
 import { useCart } from "../../context/CartContext";
 import { useAuth } from "../../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import OptimizedImage from "./OptimizedImage";
+import ProductEditModal from "./ProductEditModal";
 
-const ProductCard = ({ product }) => {
+const ProductCard = ({ product, onProductUpdated }) => {
   const { isAuthenticated, isAdmin, user } = useAuth();
   const { addToCart, cartItems, updateCartItem, removeFromCart } = useCart();
   const navigate = useNavigate();
-  const isEmailVerified = user?.emailVerified !== false;
+  const [showEditModal, setShowEditModal] = useState(false);
 
   const inCart = cartItems.find(
     (item) =>
@@ -18,15 +28,7 @@ const ProductCard = ({ product }) => {
   const qty = inCart?.quantity || 0;
 
   const handleAdd = () => {
-    if (!isAuthenticated) {
-      navigate("/login");
-      return;
-    }
-    if (!isEmailVerified) {
-      toast.error("Please verify your email before adding items to cart");
-      return;
-    }
-    addToCart(product._id, 1);
+    addToCart(product._id, 1, product);
   };
 
   const handleIncrement = () => updateCartItem(product._id, qty + 1);
@@ -86,6 +88,17 @@ const ProductCard = ({ product }) => {
             </span>
           </div>
         )}
+
+        {/* Admin edit button */}
+        {isAdmin && (
+          <button
+            onClick={() => setShowEditModal(true)}
+            className="absolute top-1.5 right-1.5 p-1.5 bg-white/90 rounded-full shadow hover:bg-primary hover:text-white text-gray-500 transition-all"
+            title="Edit product"
+          >
+            <Pencil size={12} />
+          </button>
+        )}
       </div>
 
       {/* Content */}
@@ -94,6 +107,15 @@ const ProductCard = ({ product }) => {
           {product.name}
         </h3>
         <p className="text-[9px] text-gray-400 mb-1">{product.category}</p>
+
+        {/* Stock quantity - admin only */}
+        {isAdmin && (
+          <p
+            className={`text-[9px] font-medium mb-1 ${product.stockQuantity <= (product.lowStockThreshold || 10) ? "text-red-500" : "text-green-600"}`}
+          >
+            Stock: {product.stockQuantity}
+          </p>
+        )}
 
         <div className="flex items-center justify-between">
           <div>
@@ -142,6 +164,14 @@ const ProductCard = ({ product }) => {
           )}
         </div>
       </div>
+
+      {showEditModal && (
+        <ProductEditModal
+          product={product}
+          onClose={() => setShowEditModal(false)}
+          onSaved={onProductUpdated}
+        />
+      )}
     </div>
   );
 };

@@ -3,7 +3,11 @@ import validate from "../middlewares/validation-middlewares.js";
 
 const userValidation = [
   body("name").notEmpty().isString().trim().withMessage("Name required"),
-  body("email").notEmpty().isEmail().trim().withMessage("Email is required"),
+  body("mobile")
+    .notEmpty()
+    .withMessage("Mobile number is required")
+    .matches(/^\d{10}$/)
+    .withMessage("Mobile number must be exactly 10 digits"),
   body("password")
     .notEmpty()
     .isString()
@@ -18,11 +22,6 @@ const userValidation = [
       }
       return true;
     }),
-  body("mobile")
-    .notEmpty()
-    .withMessage("Mobile number is required")
-    .matches(/^\d{10}$/)
-    .withMessage("Mobile number must be exactly 10 digits"),
   validate,
 ];
 

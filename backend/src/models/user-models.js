@@ -1,6 +1,5 @@
 import { Schema, model } from "mongoose";
 import bcrypt from "bcrypt";
-import validator from "validator";
 import crypto from "crypto";
 
 const userSchema = new Schema(
@@ -11,14 +10,6 @@ const userSchema = new Schema(
       trim: true,
       minlength: 3,
       maxlength: 20,
-    },
-    email: {
-      type: String,
-      required: [true, "User must have an email"],
-      unique: true,
-      lowercase: true,
-      trim: true,
-      validate: [validator.isEmail, "Please provide a valid email"],
     },
     password: {
       type: String,
@@ -40,12 +31,7 @@ const userSchema = new Schema(
     passwordChangedAt: Date,
     passwordResetToken: String,
     passwordResetExpires: Date,
-    emailVerificationToken: String,
-    emailVerificationExpires: Date,
-    emailVerified: {
-      type: Boolean,
-      default: false,
-    },
+
     role: {
       type: String,
       enum: ["admin", "customer"],
@@ -54,6 +40,7 @@ const userSchema = new Schema(
     mobile: {
       type: String,
       required: [true, "Mobile number is required"],
+      unique: true,
       validate: {
         validator: function (v) {
           return /^\d{10}$/.test(v);
@@ -65,10 +52,21 @@ const userSchema = new Schema(
       type: String,
       default: "",
     },
+    address: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     isActive: {
       type: Boolean,
       default: true,
     },
+    mobileVerified: {
+      type: Boolean,
+      default: false,
+    },
+    otp: String,
+    otpExpires: Date,
   },
   {
     timestamps: true,
@@ -113,21 +111,7 @@ userSchema.methods.createPasswordResetToken = function () {
   return resetToken;
 };
 
-// 5. INSTANCE METHOD: GENERATE EMAIL VERIFICATION TOKEN
-userSchema.methods.createEmailVerificationToken = function () {
-  const verificationToken = crypto.randomBytes(32).toString("hex");
-
-  this.emailVerificationToken = crypto
-    .createHash("sha256")
-    .update(verificationToken)
-    .digest("hex");
-
-  this.emailVerificationExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
-
-  return verificationToken;
-};
-
-// 6. INSTANCE METHOD: CHECK IF PASSWORD CHANGED AFTER TOKEN ISSUED
+// 5. INSTANCE METHOD: CHECK IF PASSWORD CHANGED AFTER TOKEN ISSUED
 userSchema.methods.changePasswordAfter = function (jwtTimeStamp) {
   if (this.passwordChangedAt) {
     const passwordChangedTime = parseInt(

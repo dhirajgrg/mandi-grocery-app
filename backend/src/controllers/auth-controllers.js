@@ -1,28 +1,79 @@
-import crypto from "crypto";
 import User from "../models/user-models.js";
 import catchAsync from "../utils/catchAsync-utils.js";
 import AppError from "../utils/appError-utils.js";
 import ApiResponse from "../utils/apiResponse-utils.js";
-import SendEmail from "../utils/email-utils.js";
 import { jwtSignToken } from "../utils/jwtToken-utils.js";
 import { uploadProfilePicToImageKit } from "../utils/imagekit-utils.js";
+import { generateOTP, sendOTP, sendWelcomeSMS } from "../utils/sms-utils.js";
 
-const buildAuthCookieOptions = () => {
+// Temporary in-memory store for pending signups (before OTP verification)
+// In production, use Redis or a DB collection with TTL
+const pendingSignups = new Map();
+
+// In-memory OTP rate limiter: key → { count, blockedUntil }
+// Max 5 OTP requests per key, then 15-minute cooldown
+const otpRateLimiter = new Map();
+const OTP_MAX_REQUESTS = 5;
+const OTP_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+const OTP_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
+
+function checkOtpRateLimit(key) {
+  const now = Date.now();
+  const entry = otpRateLimiter.get(key);
+
+  if (entry) {
+    if (entry.blockedUntil && now < entry.blockedUntil) {
+      const waitMinutes = Math.ceil((entry.blockedUntil - now) / 60000);
+      return { allowed: false, waitMinutes };
+    }
+    if (entry.blockedUntil && now >= entry.blockedUntil) {
+      otpRateLimiter.delete(key);
+    } else {
+      entry.count += 1;
+      if (entry.count > OTP_MAX_REQUESTS) {
+        entry.blockedUntil = now + OTP_COOLDOWN_MS;
+        return { allowed: false, waitMinutes: 15 };
+      }
+      return { allowed: true, remaining: OTP_MAX_REQUESTS - entry.count };
+    }
+  }
+
+  otpRateLimiter.set(key, { count: 1, blockedUntil: null });
+  return { allowed: true, remaining: OTP_MAX_REQUESTS - 1 };
+}
+
+// Auto-cleanup expired entries every 10 minutes
+setInterval(
+  () => {
+    const now = Date.now();
+    for (const [mobile, data] of pendingSignups) {
+      if (now > data.otpExpires) pendingSignups.delete(mobile);
+    }
+    for (const [key, data] of otpRateLimiter) {
+      if (data.blockedUntil && now > data.blockedUntil + OTP_COOLDOWN_MS) {
+        otpRateLimiter.delete(key);
+      }
+    }
+  },
+  10 * 60 * 1000,
+);
+
+const buildAuthCookieOptions = (rememberMe = false) => {
   const isProduction = process.env.NODE_ENV === "production";
 
   return {
     httpOnly: true,
     secure: isProduction,
     sameSite: isProduction ? "none" : "lax",
-    maxAge: 24 * 60 * 60 * 1000,
+    maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
   };
 };
 
-//REGISTER NEW USER
-export const signup = catchAsync(async (req, res, next) => {
-  const { name, email, password, passwordConfirm, mobile } = req.body;
+// STEP 1: SEND SIGNUP OTP (validates data, sends OTP, stores pending signup)
+export const sendSignupOtp = catchAsync(async (req, res, next) => {
+  const { name, mobile, password, passwordConfirm } = req.body;
 
-  if (!name || !email || !password || !passwordConfirm || !mobile) {
+  if (!name || !mobile || !password || !passwordConfirm) {
     return next(new AppError("Please enter value for all inputs", 400));
   }
 
@@ -30,60 +81,130 @@ export const signup = catchAsync(async (req, res, next) => {
     return next(new AppError("Mobile number must be exactly 10 digits", 400));
   }
   if (password !== passwordConfirm) {
-    return next(new AppError("password and passwordconfirm don not match!"));
+    return next(
+      new AppError("Password and confirm password do not match!", 400),
+    );
   }
 
-  const existingUser = await User.findOne({ email });
+  const existingUser = await User.findOne({ mobile });
   if (existingUser) {
-    return next(new AppError("User already exists", 403));
+    return next(
+      new AppError("User with this mobile number already exists", 403),
+    );
+  }
+
+  // Rate limit check
+  const rateKey = `signup:${mobile}`;
+  const rateCheck = checkOtpRateLimit(rateKey);
+  if (!rateCheck.allowed) {
+    return next(
+      new AppError(
+        `Too many OTP requests. Please wait ${rateCheck.waitMinutes} minutes before trying again.`,
+        429,
+      ),
+    );
+  }
+
+  const otp = generateOTP();
+
+  // Store pending signup data in memory
+  pendingSignups.set(mobile, {
+    name,
+    mobile,
+    password,
+    passwordConfirm,
+    otp,
+    otpExpires: Date.now() + OTP_EXPIRY_MS,
+  });
+
+  await sendOTP(mobile, otp);
+
+  res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        "OTP sent to your mobile number. Please verify to complete registration.",
+        { remainingResends: rateCheck.remaining },
+      ),
+    );
+});
+
+// STEP 2: VERIFY OTP & CREATE USER
+export const signup = catchAsync(async (req, res, next) => {
+  const { mobile, otp, rememberMe } = req.body;
+
+  if (!mobile || !otp) {
+    return next(new AppError("Mobile number and OTP are required", 400));
+  }
+
+  const pending = pendingSignups.get(mobile);
+
+  if (!pending) {
+    return next(
+      new AppError(
+        "No pending registration found. Please start signup again.",
+        400,
+      ),
+    );
+  }
+
+  if (pending.otp !== otp || Date.now() > pending.otpExpires) {
+    return next(new AppError("Invalid or expired OTP", 400));
+  }
+
+  // Double-check no user was created in the meantime
+  const existingUser = await User.findOne({ mobile });
+  if (existingUser) {
+    pendingSignups.delete(mobile);
+    return next(
+      new AppError("User with this mobile number already exists", 403),
+    );
   }
 
   const newUser = await User.create({
-    name,
-    email,
-    password,
-    passwordConfirm,
-    mobile,
+    name: pending.name,
+    mobile: pending.mobile,
+    password: pending.password,
+    passwordConfirm: pending.passwordConfirm,
     role: "customer",
+    mobileVerified: true,
   });
 
-  // Generate email verification token
-  const verificationToken = newUser.createEmailVerificationToken();
-  await newUser.save({ validateBeforeSave: false });
+  // Cleanup pending signup
+  pendingSignups.delete(mobile);
 
-  const token = jwtSignToken({ id: newUser.id, email, role: newUser.role });
-  const verificationURL = `${process.env.FRONTEND_URL}/verify-email/${verificationToken}`;
+  // Send welcome SMS
+  await sendWelcomeSMS(mobile, pending.name);
 
-  // Send verification email (includes welcome message)
-  const emailSender = new SendEmail(newUser, verificationURL);
-  await emailSender.sendVerification();
+  const token = jwtSignToken({ id: newUser.id, mobile, role: newUser.role });
 
-  res.cookie("token", token, buildAuthCookieOptions());
+  res.cookie("token", token, buildAuthCookieOptions(!!rememberMe));
 
   //hide password from response
   newUser.password = undefined;
   res
     .status(201)
-    .json(new ApiResponse(201, "User signup successfully", newUser));
+    .json(new ApiResponse(201, "Account created successfully!", newUser));
 });
 
 //LOGIN USER
 export const login = catchAsync(async (req, res, next) => {
-  const { email, password } = req.body;
+  const { mobile, password, rememberMe } = req.body;
 
-  if (!email || !password) {
-    return next(new AppError("please provide email or password", 400));
+  if (!mobile || !password) {
+    return next(new AppError("Please provide mobile number and password", 400));
   }
 
-  const user = await User.findOne({ email }).select("+password");
+  const user = await User.findOne({ mobile }).select("+password");
 
   if (!user || !(await user.comparePassword(password, user.password))) {
-    return next(new AppError("Incorrect email or password", 401));
+    return next(new AppError("Incorrect mobile number or password", 401));
   }
 
   const token = jwtSignToken({
     id: user._id,
-    email: user.email,
+    mobile: user.mobile,
     role: user.role,
   });
 
@@ -91,7 +212,7 @@ export const login = catchAsync(async (req, res, next) => {
 
   res
     .status(200)
-    .cookie("token", token, buildAuthCookieOptions())
+    .cookie("token", token, buildAuthCookieOptions(!!rememberMe))
     .json(new ApiResponse(200, "User signed in successfully!", user));
 });
 
@@ -115,13 +236,43 @@ export const getMe = catchAsync(async (req, res, next) => {
     .json(new ApiResponse(200, "User fetched successfully", { user }));
 });
 
-//  CHANGED PASSWORD SECURE
-export const changePassword = catchAsync(async (req, res, next) => {
-  const { oldPassword, newPassword, confirmNewPassword } = req.body;
+// SEND OTP FOR PASSWORD CHANGE (authenticated)
+export const sendChangePasswordOtp = catchAsync(async (req, res, next) => {
+  const user = await User.findById(req.user._id);
 
-  if (!req.user.emailVerified) {
+  // Rate limit check
+  const rateKey = `changepw:${user._id}`;
+  const rateCheck = checkOtpRateLimit(rateKey);
+  if (!rateCheck.allowed) {
     return next(
-      new AppError("Please verify your email before changing password", 403),
+      new AppError(
+        `Too many OTP requests. Please wait ${rateCheck.waitMinutes} minutes before trying again.`,
+        429,
+      ),
+    );
+  }
+
+  const otp = generateOTP();
+  user.otp = otp;
+  user.otpExpires = Date.now() + OTP_EXPIRY_MS;
+  await user.save({ validateBeforeSave: false });
+
+  await sendOTP(user.mobile, otp);
+
+  res.status(200).json(
+    new ApiResponse(200, "OTP sent to your mobile number", {
+      remainingResends: rateCheck.remaining,
+    }),
+  );
+});
+
+// CHANGE PASSWORD WITH OTP VERIFICATION
+export const changePassword = catchAsync(async (req, res, next) => {
+  const { otp, newPassword, confirmNewPassword } = req.body;
+
+  if (!otp || !newPassword || !confirmNewPassword) {
+    return next(
+      new AppError("OTP, new password and confirm password are required", 400),
     );
   }
 
@@ -129,14 +280,20 @@ export const changePassword = catchAsync(async (req, res, next) => {
     return next(new AppError("New passwords do not match", 400));
   }
 
-  const user = await User.findById(req.user._id).select("+password");
+  const user = await User.findOne({
+    _id: req.user._id,
+    otp,
+    otpExpires: { $gt: Date.now() },
+  });
 
-  if (!(await user.comparePassword(oldPassword, user.password))) {
-    return next(new AppError("The password you entered is incorrect", 401));
+  if (!user) {
+    return next(new AppError("Invalid or expired OTP", 400));
   }
 
   user.password = newPassword;
   user.passwordConfirm = confirmNewPassword;
+  user.otp = undefined;
+  user.otpExpires = undefined;
 
   await user.save();
 
@@ -150,99 +307,10 @@ export const changePassword = catchAsync(async (req, res, next) => {
   );
 });
 
-//FORGET PASSWORD
-export const forgetPassword = catchAsync(async (req, res, next) => {
-  const user = await User.findOne({ email: req.body.email });
-  if (!user) {
-    return next(new AppError("User not found", 404));
-  }
-  const resetToken = user.createPasswordResetToken();
-
-  await user.save({ validateBeforeSave: false });
-  const resetURL = `${process.env.FRONTEND_URL || `${req.protocol}://${req.get("host")}`}/reset-password/${resetToken}`;
-
-  await new SendEmail(user, resetURL).sendPasswordReset();
-  res.status(200).json(new ApiResponse(200, "Token sent to email", null));
-});
-
-//RESET PASSWORD
-export const resetPassword = catchAsync(async (req, res, next) => {
-  const resetToken = req.params.resetToken || req.body.token;
-  const { password, passwordConfirm } = req.body;
-  const hashedToken = crypto
-    .createHash("sha256")
-    .update(resetToken)
-    .digest("hex");
-  const user = await User.findOne({
-    passwordResetToken: hashedToken,
-    passwordResetExpires: { $gt: Date.now() },
-  });
-  if (!user) {
-    return next(new AppError("Token is invalid or expired", 400));
-  }
-  user.password = password;
-  user.passwordConfirm = passwordConfirm;
-  user.passwordResetToken = undefined;
-  user.passwordResetExpires = undefined;
-  await user.save({ validateBeforeSave: false });
-  const token = jwtSignToken({
-    id: user._id,
-    email: user.email,
-    role: user.role,
-  });
-  user.password = undefined;
-  res
-    .status(200)
-    .cookie("token", token, buildAuthCookieOptions())
-    .json(new ApiResponse(200, "Password reset successfully", user));
-});
-
-//EMAIL VERIFICATION
-export const verifyEmail = catchAsync(async (req, res, next) => {
-  const verificationToken = req.params.verificationToken || req.body.token;
-  const hashedToken = crypto
-    .createHash("sha256")
-    .update(verificationToken)
-    .digest("hex");
-  const user = await User.findOne({
-    emailVerificationToken: hashedToken,
-    emailVerificationExpires: { $gt: Date.now() },
-  });
-  if (!user) {
-    return next(new AppError("Token is invalid or expired", 400));
-  }
-  user.emailVerified = true;
-  user.emailVerificationToken = undefined;
-  user.emailVerificationExpires = undefined;
-  await user.save({ validateBeforeSave: false });
-
-  res
-    .status(200)
-    .json(new ApiResponse(200, "Email verified successfully", null));
-});
-
-//RESEND VERIFICATION EMAIL
-export const resendVerificationEmail = catchAsync(async (req, res, next) => {
-  const user = await User.findOne({ email: req.body.email });
-  if (!user) {
-    return next(new AppError("User not found", 404));
-  }
-  if (user.emailVerified) {
-    return next(new AppError("Email already verified", 400));
-  }
-  const verificationToken = user.createEmailVerificationToken();
-  await user.save({ validateBeforeSave: false });
-  const verificationURL = `${process.env.FRONTEND_URL || `${req.protocol}://${req.get("host")}`}/verify-email/${verificationToken}`;
-  await new SendEmail(user, verificationURL).sendVerification();
-  res
-    .status(200)
-    .json(new ApiResponse(200, "Verification email sent successfully", null));
-});
-
 // GET ALL USERS (ADMIN ONLY)
 export const getAllUsers = catchAsync(async (req, res, next) => {
   const users = await User.find().select(
-    "-passwordResetToken -passwordResetExpires -emailVerificationToken -emailVerificationExpires",
+    "-passwordResetToken -passwordResetExpires",
   );
   res
     .status(200)
@@ -302,10 +370,12 @@ export const updateName = catchAsync(async (req, res, next) => {
 // UPDATE USER (ADMIN ONLY)
 export const updateUser = catchAsync(async (req, res, next) => {
   const { id } = req.params;
-  const { isActive } = req.body;
+  const { isActive, name, role } = req.body;
 
   const updates = {};
   if (typeof isActive === "boolean") updates.isActive = isActive;
+  if (name && name.trim()) updates.name = name.trim();
+  if (role && ["admin", "customer"].includes(role)) updates.role = role;
 
   if (Object.keys(updates).length === 0) {
     return next(new AppError("No fields to update", 400));
@@ -323,4 +393,195 @@ export const updateUser = catchAsync(async (req, res, next) => {
   res
     .status(200)
     .json(new ApiResponse(200, "User updated successfully", { user }));
+});
+
+// UPDATE OWN PROFILE (ANY AUTHENTICATED USER)
+export const updateProfile = catchAsync(async (req, res, next) => {
+  const { address, name } = req.body;
+
+  const updates = {};
+  if (name && name.trim()) updates.name = name.trim();
+  if (typeof address === "string") updates.address = address.trim();
+
+  if (Object.keys(updates).length === 0) {
+    return next(new AppError("No fields to update", 400));
+  }
+
+  const user = await User.findByIdAndUpdate(req.user._id, updates, {
+    new: true,
+    runValidators: true,
+  });
+
+  res
+    .status(200)
+    .json(new ApiResponse(200, "Profile updated successfully", user));
+});
+
+// GET ADMIN CONTACT INFO (PUBLIC)
+export const getAdminContact = catchAsync(async (req, res) => {
+  const admin = await User.findOne({ role: "admin" }).select(
+    "name mobile profilePic",
+  );
+  res
+    .status(200)
+    .json(
+      new ApiResponse(200, "Admin contact fetched", { contact: admin || {} }),
+    );
+});
+
+// FORGOT PASSWORD - SEND OTP
+export const forgotPassword = catchAsync(async (req, res, next) => {
+  const { mobile } = req.body;
+
+  if (!mobile || !/^\d{10}$/.test(mobile)) {
+    return next(
+      new AppError("Please provide a valid 10-digit mobile number", 400),
+    );
+  }
+
+  const user = await User.findOne({ mobile });
+  if (!user) {
+    return next(new AppError("No account found with this mobile number", 404));
+  }
+
+  // Rate limit check
+  const rateKey = `forgot:${mobile}`;
+  const rateCheck = checkOtpRateLimit(rateKey);
+  if (!rateCheck.allowed) {
+    return next(
+      new AppError(
+        `Too many OTP requests. Please wait ${rateCheck.waitMinutes} minutes before trying again.`,
+        429,
+      ),
+    );
+  }
+
+  const otp = generateOTP();
+  user.otp = otp;
+  user.otpExpires = Date.now() + OTP_EXPIRY_MS;
+  await user.save({ validateBeforeSave: false });
+
+  await sendOTP(mobile, otp);
+
+  res.status(200).json(
+    new ApiResponse(200, "OTP sent to your mobile number", {
+      remainingResends: rateCheck.remaining,
+    }),
+  );
+});
+
+// VERIFY OTP (for forgot password)
+export const verifyOtp = catchAsync(async (req, res, next) => {
+  const { mobile, otp } = req.body;
+
+  if (!mobile || !otp) {
+    return next(new AppError("Mobile number and OTP are required", 400));
+  }
+
+  const user = await User.findOne({
+    mobile,
+    otp,
+    otpExpires: { $gt: Date.now() },
+  });
+
+  if (!user) {
+    return next(new AppError("Invalid or expired OTP", 400));
+  }
+
+  res.status(200).json(new ApiResponse(200, "OTP verified successfully", {}));
+});
+
+// RESET PASSWORD WITH OTP
+export const resetPassword = catchAsync(async (req, res, next) => {
+  const { mobile, otp, password, passwordConfirm } = req.body;
+
+  if (!mobile || !otp || !password || !passwordConfirm) {
+    return next(new AppError("All fields are required", 400));
+  }
+
+  if (password !== passwordConfirm) {
+    return next(new AppError("Passwords do not match", 400));
+  }
+
+  const user = await User.findOne({
+    mobile,
+    otp,
+    otpExpires: { $gt: Date.now() },
+  });
+
+  if (!user) {
+    return next(new AppError("Invalid or expired OTP", 400));
+  }
+
+  user.password = password;
+  user.passwordConfirm = passwordConfirm;
+  user.otp = undefined;
+  user.otpExpires = undefined;
+  await user.save();
+
+  res.status(200).json(new ApiResponse(200, "Password reset successfully", {}));
+});
+
+// SEND VERIFICATION OTP (for phone verification after signup)
+export const sendVerificationOtp = catchAsync(async (req, res, next) => {
+  const user = await User.findById(req.user._id);
+
+  if (user.mobileVerified) {
+    return next(new AppError("Mobile number already verified", 400));
+  }
+
+  // Rate limit check
+  const rateKey = `verify:${user._id}`;
+  const rateCheck = checkOtpRateLimit(rateKey);
+  if (!rateCheck.allowed) {
+    return next(
+      new AppError(
+        `Too many OTP requests. Please wait ${rateCheck.waitMinutes} minutes before trying again.`,
+        429,
+      ),
+    );
+  }
+
+  const otp = generateOTP();
+  user.otp = otp;
+  user.otpExpires = Date.now() + OTP_EXPIRY_MS;
+  await user.save({ validateBeforeSave: false });
+
+  await sendOTP(user.mobile, otp);
+
+  res.status(200).json(
+    new ApiResponse(200, "Verification OTP sent", {
+      remainingResends: rateCheck.remaining,
+    }),
+  );
+});
+
+// VERIFY MOBILE NUMBER
+export const verifyMobile = catchAsync(async (req, res, next) => {
+  const { otp } = req.body;
+
+  if (!otp) {
+    return next(new AppError("OTP is required", 400));
+  }
+
+  const user = await User.findOne({
+    _id: req.user._id,
+    otp,
+    otpExpires: { $gt: Date.now() },
+  });
+
+  if (!user) {
+    return next(new AppError("Invalid or expired OTP", 400));
+  }
+
+  user.mobileVerified = true;
+  user.otp = undefined;
+  user.otpExpires = undefined;
+  await user.save({ validateBeforeSave: false });
+
+  res
+    .status(200)
+    .json(
+      new ApiResponse(200, "Mobile number verified successfully", { user }),
+    );
 });

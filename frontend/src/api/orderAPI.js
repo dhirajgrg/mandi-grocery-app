@@ -6,6 +6,7 @@ export const orderAPI = {
   getMyOrders: () => API.get("/api/v1/orders"),
   getById: (id) => API.get(`/api/v1/orders/${id}`),
   cancel: (id) => API.patch(`/api/v1/orders/${id}/cancel`),
+  reorder: (id) => API.post(`/api/v1/orders/${id}/reorder`),
   deleteOrder: (id) => API.delete(`/api/v1/orders/${id}`),
 
   // Admin
@@ -13,7 +14,9 @@ export const orderAPI = {
     API.get("/api/v1/orders/admin/all", { params: status ? { status } : {} }),
   updateStatus: (id, status) =>
     API.patch(`/api/v1/orders/admin/${id}/status`, { status }),
-  getStats: () => API.get("/api/v1/orders/admin/stats"),
+  getStats: (params) => API.get("/api/v1/orders/admin/stats", { params }),
+  bulkDelete: (orderIds) =>
+    API.post("/api/v1/orders/admin/bulk-delete", { orderIds }),
 
   // eSewa Payment
   initiateEsewa: (data) => API.post("/api/v1/payment/esewa/initiate", data),

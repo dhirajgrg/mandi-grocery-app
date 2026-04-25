@@ -4,6 +4,7 @@ import { productAPI } from "../../api/productAPI";
 import ProductCard from "../../components/ui/ProductCard";
 import LoadingSpinner from "../../components/ui/LoadingSpinner";
 import { Search, SlidersHorizontal, X } from "lucide-react";
+import { useSocket } from "../../context/SocketContext";
 
 const ProductsPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -21,32 +22,42 @@ const ProductsPage = () => {
   const [maxPrice, setMaxPrice] = useState("");
   const [filterOrganic, setFilterOrganic] = useState(false);
   const [filterFresh, setFilterFresh] = useState(false);
+  const socket = useSocket();
+
+  const fetchProducts = async () => {
+    setLoading(true);
+    try {
+      const res = await productAPI.getAll();
+      const fetchedProducts =
+        res.data.data?.products || res.data.products || [];
+
+      setAllProducts(fetchedProducts);
+      setProducts(fetchedProducts);
+      setCategories(
+        [...new Set(fetchedProducts.map((product) => product.category))].filter(
+          Boolean,
+        ),
+      );
+    } catch {
+      setAllProducts([]);
+      setProducts([]);
+      setCategories([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchProducts = async () => {
-      setLoading(true);
-      try {
-        const res = await productAPI.getAll();
-        const fetchedProducts =
-          res.data.data?.products || res.data.products || [];
-
-        setAllProducts(fetchedProducts);
-        setProducts(fetchedProducts);
-        setCategories(
-          [
-            ...new Set(fetchedProducts.map((product) => product.category)),
-          ].filter(Boolean),
-        );
-      } catch {
-        setAllProducts([]);
-        setProducts([]);
-        setCategories([]);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchProducts();
   }, []);
+
+  // Refresh products when stock is updated
+  useEffect(() => {
+    if (!socket?.onEvent) return;
+    return socket.onEvent("stock_updated", () => {
+      fetchProducts();
+    });
+  }, [socket]);
 
   useEffect(() => {
     const searchTerms = searchTerm
@@ -286,7 +297,11 @@ const ProductsPage = () => {
       ) : products.length > 0 ? (
         <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3">
           {products.map((product) => (
-            <ProductCard key={product._id} product={product} />
+            <ProductCard
+              key={product._id}
+              product={product}
+              onProductUpdated={fetchProducts}
+            />
           ))}
         </div>
       ) : (

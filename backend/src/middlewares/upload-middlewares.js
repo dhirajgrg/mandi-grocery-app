@@ -27,3 +27,11 @@ export const profilePicUpload = multer({
     fileSize: 2 * 1024 * 1024,
   },
 });
+
+export const bannerImageUpload = multer({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+});

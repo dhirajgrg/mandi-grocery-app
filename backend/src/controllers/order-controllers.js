@@ -5,6 +5,16 @@ import AppError from "../utils/appError-utils.js";
 import ApiResponse from "../utils/apiResponse-utils.js";
 import Order from "../models/Order.js";
 import { getIO } from "../socket.js";
+import { sendSMS } from "../utils/sms-utils.js";
+
+const STATUS_LABELS = {
+  pending: "Pending",
+  confirmed: "Confirmed",
+  packed: "Packed",
+  out_for_delivery: "Out for Delivery",
+  delivered: "Delivered",
+  cancelled: "Cancelled",
+};
 
 // Calculate total applying percentage discount per item
 const calculateTotal = (items) => {
@@ -20,15 +30,24 @@ const calculateTotal = (items) => {
 
 // POST /api/v1/orders — Place order from cart
 export const placeOrder = catchAsync(async (req, res, next) => {
-  if (!req.user.emailVerified) {
+  // Only allow orders between 7:00 AM and 9:00 PM Nepal Time (UTC+5:45)
+  const now = new Date();
+  const nepalOffset = 5 * 60 + 45; // minutes
+  const nepalMinutes =
+    now.getUTCHours() * 60 + now.getUTCMinutes() + nepalOffset;
+  const nepalHour = Math.floor((nepalMinutes % 1440) / 60);
+  if (nepalHour < 7 || nepalHour >= 21) {
     return next(
-      new AppError("Please verify your email before placing an order", 403),
+      new AppError(
+        "Orders can only be placed between 7:00 AM and 9:00 PM",
+        400,
+      ),
     );
   }
 
   const { lat, lng, address, paymentMethod, orderType } = req.body;
 
-  if (orderType !== "takeaway" && !address) {
+  if (!address) {
     return next(new AppError("Delivery address is required", 400));
   }
 
@@ -79,6 +98,11 @@ export const placeOrder = catchAsync(async (req, res, next) => {
   await cart.save();
 
   await order.populate("items.productId");
+
+  // Mock SMS to console for new order
+  console.log(
+    `\n📦 [NEW ORDER] #${order.orderNumber} placed by ${req.user.name} (+977${req.user.mobile}) — Rs.${Math.round(order.totalAmount)}\n`,
+  );
 
   // Notify admins in real-time
   try {
@@ -198,6 +222,84 @@ export const deleteOrder = catchAsync(async (req, res, next) => {
   res.status(200).json(new ApiResponse(200, "Order deleted successfully"));
 });
 
+// POST /api/v1/orders/:id/reorder — Add items from a past order back to cart
+export const reorder = catchAsync(async (req, res, next) => {
+  const order = await Order.findById(req.params.id);
+
+  if (!order) {
+    return next(new AppError("Order not found", 404));
+  }
+
+  if (order.userId.toString() !== req.user._id.toString()) {
+    return next(new AppError("Permission denied", 403));
+  }
+
+  // Validate products still exist and are available
+  const validItems = [];
+  const unavailable = [];
+  for (const item of order.items) {
+    const product = await Product.findById(item.productId);
+    if (!product || !product.isAvailable) {
+      unavailable.push(item.productId);
+      continue;
+    }
+    validItems.push({
+      productId: product._id,
+      quantity: item.quantity,
+      price: product.price,
+      discount: product.discount || 0,
+    });
+  }
+
+  if (validItems.length === 0) {
+    return next(
+      new AppError(
+        "None of the items in this order are available anymore",
+        400,
+      ),
+    );
+  }
+
+  // Upsert into cart
+  let cart = await Cart.findOne({ userId: req.user._id });
+  if (!cart) {
+    cart = await Cart.create({
+      userId: req.user._id,
+      items: [],
+      totalAmount: 0,
+    });
+  }
+
+  for (const item of validItems) {
+    const existing = cart.items.find(
+      (ci) => ci.productId.toString() === item.productId.toString(),
+    );
+    if (existing) {
+      existing.quantity = item.quantity;
+      existing.price = item.price;
+      existing.discount = item.discount;
+    } else {
+      cart.items.push(item);
+    }
+  }
+
+  // Recalculate totalAmount
+  cart.totalAmount = cart.items.reduce((sum, ci) => {
+    const discounted = ci.price * (1 - (ci.discount || 0) / 100);
+    return sum + discounted * ci.quantity;
+  }, 0);
+
+  await cart.save();
+  await cart.populate("items.productId");
+
+  const message =
+    unavailable.length > 0
+      ? `${validItems.length} item(s) added to cart. ${unavailable.length} item(s) are no longer available.`
+      : "All items added to cart";
+
+  res.status(200).json(new ApiResponse(200, message, { cart }));
+});
+
 // ========================
 // ADMIN ENDPOINTS
 // ========================
@@ -222,7 +324,7 @@ export const getAllOrders = catchAsync(async (req, res, next) => {
 
   const orders = await Order.find(filter)
     .populate("items.productId")
-    .populate("userId", "name email mobile")
+    .populate("userId", "name mobile")
     .sort({ createdAt: -1 });
 
   res
@@ -253,24 +355,66 @@ export const updateOrderStatus = catchAsync(async (req, res, next) => {
     );
   }
 
+  // Deduct stock when order is delivered
+  if (status === "delivered") {
+    const updatedProducts = [];
+    for (const item of order.items) {
+      const updated = await Product.findByIdAndUpdate(
+        item.productId,
+        { $inc: { stockQuantity: -item.quantity } },
+        { new: true },
+      );
+      if (updated) {
+        updatedProducts.push({
+          _id: updated._id,
+          name: updated.name,
+          stockQuantity: updated.stockQuantity,
+          lowStockThreshold: updated.lowStockThreshold,
+          isAvailable: updated.isAvailable,
+        });
+      }
+    }
+    // Notify all clients about stock changes
+    try {
+      getIO().emit("stock_updated", { products: updatedProducts });
+    } catch {
+      // socket not critical
+    }
+  }
+
   order.status = status;
   await order.save();
   await order.populate("items.productId");
-  await order.populate("userId", "name email mobile");
+  await order.populate("userId", "name mobile");
+
+  const statusLabel = STATUS_LABELS[status] || status;
+
+  // Mock SMS notification to console
+  if (order.userId?.mobile) {
+    await sendSMS(
+      order.userId.mobile,
+      `Order #${order.orderNumber} update: Your order is now "${statusLabel}". Thank you for shopping with Mandi!`,
+    );
+  }
 
   // Notify the customer in real-time
   try {
-    getIO().to(`user:${order.userId._id}`).emit("order_status_changed", {
-      orderId: order._id,
-      orderNumber: order.orderNumber,
-      status: order.status,
-    });
+    getIO()
+      .to(`user:${order.userId._id}`)
+      .emit("order_status_changed", {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        statusLabel,
+        message: `Your order #${order.orderNumber} is now ${statusLabel}`,
+      });
     // Also notify admins so all admin dashboards stay in sync
     getIO().to("admins").emit("order_update", {
       type: "status_changed",
       orderId: order._id,
       orderNumber: order.orderNumber,
       status: order.status,
+      statusLabel,
     });
   } catch {
     // socket not critical
@@ -283,8 +427,50 @@ export const updateOrderStatus = catchAsync(async (req, res, next) => {
     );
 });
 
+// POST /api/v1/orders/admin/bulk-delete — Bulk delete orders (admin)
+export const bulkDeleteOrders = catchAsync(async (req, res, next) => {
+  const { orderIds } = req.body;
+
+  if (!Array.isArray(orderIds) || orderIds.length === 0) {
+    return next(new AppError("Please provide an array of order IDs", 400));
+  }
+
+  const result = await Order.deleteMany({ _id: { $in: orderIds } });
+
+  res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        `${result.deletedCount} order(s) deleted successfully`,
+      ),
+    );
+});
+
 // GET /api/v1/orders/admin/stats — Dashboard stats (admin)
 export const getAdminStats = catchAsync(async (req, res, next) => {
+  const { trendingPeriod = "monthly" } = req.query;
+
+  // Build date filter for trending items based on period
+  const now = new Date();
+  let trendingDateFilter;
+  if (trendingPeriod === "daily") {
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    trendingDateFilter = { createdAt: { $gte: dayStart } };
+  } else if (trendingPeriod === "yearly") {
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+    trendingDateFilter = { createdAt: { $gte: yearStart } };
+  } else {
+    // monthly (default)
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    trendingDateFilter = { createdAt: { $gte: monthStart } };
+  }
+
+  // Today boundaries for time breakdown
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayEnd = new Date(todayStart);
+  todayEnd.setDate(todayEnd.getDate() + 1);
+
   const [stats] = await Order.aggregate([
     {
       $facet: {
@@ -384,7 +570,7 @@ export const getAdminStats = catchAsync(async (req, res, next) => {
               totalLost: 1,
               orderNumbers: 1,
               "user.name": 1,
-              "user.email": 1,
+              "user.mobile": 1,
             },
           },
         ],
@@ -407,7 +593,7 @@ export const getAdminStats = catchAsync(async (req, res, next) => {
               status: 1,
               createdAt: 1,
               "user.name": 1,
-              "user.email": 1,
+              "user.mobile": 1,
             },
           },
         ],
@@ -419,6 +605,103 @@ export const getAdminStats = catchAsync(async (req, res, next) => {
               amount: { $sum: "$totalAmount" },
             },
           },
+        ],
+        trendingProducts: [
+          { $match: { status: { $ne: "cancelled" }, ...trendingDateFilter } },
+          { $unwind: "$items" },
+          {
+            $group: {
+              _id: "$items.productId",
+              totalSold: { $sum: "$items.quantity" },
+              totalRevenue: {
+                $sum: {
+                  $multiply: [
+                    "$items.quantity",
+                    {
+                      $multiply: [
+                        "$items.price",
+                        {
+                          $subtract: [
+                            1,
+                            {
+                              $divide: [
+                                { $ifNull: ["$items.discount", 0] },
+                                100,
+                              ],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          { $sort: { totalSold: -1 } },
+          { $limit: 8 },
+          {
+            $lookup: {
+              from: "products",
+              localField: "_id",
+              foreignField: "_id",
+              as: "product",
+            },
+          },
+          { $unwind: { path: "$product", preserveNullAndEmptyArrays: true } },
+          {
+            $project: {
+              _id: 1,
+              totalSold: 1,
+              totalRevenue: 1,
+              "product.name": 1,
+              "product.images": 1,
+              "product.unit": 1,
+            },
+          },
+        ],
+        activeOrderTracking: [
+          {
+            $match: {
+              status: {
+                $in: ["pending", "confirmed", "packed", "out_for_delivery"],
+              },
+            },
+          },
+          {
+            $group: {
+              _id: "$status",
+              count: { $sum: 1 },
+              totalAmount: { $sum: "$totalAmount" },
+            },
+          },
+        ],
+        todayOrdersByTime: [
+          {
+            $match: {
+              createdAt: { $gte: todayStart, $lt: todayEnd },
+            },
+          },
+          {
+            $group: {
+              _id: {
+                hour: { $hour: "$createdAt" },
+              },
+              count: { $sum: 1 },
+              revenue: { $sum: "$totalAmount" },
+              delivery: {
+                $sum: {
+                  $cond: [{ $eq: ["$orderType", "delivery"] }, 1, 0],
+                },
+              },
+              takeaway: {
+                $sum: {
+                  $cond: [{ $eq: ["$orderType", "takeaway"] }, 1, 0],
+                },
+              },
+            },
+          },
+          { $sort: { "_id.hour": 1 } },
         ],
       },
     },
@@ -440,6 +723,47 @@ export const getAdminStats = catchAsync(async (req, res, next) => {
     paymentMap[p._id] = { count: p.count, amount: Math.round(p.amount) };
   }
 
+  // Active order tracking
+  const activeTracking = {};
+  for (const s of stats.activeOrderTracking || []) {
+    activeTracking[s._id] = {
+      count: s.count,
+      amount: Math.round(s.totalAmount),
+    };
+  }
+
+  // Today's orders by time of day (morning: 7-12, afternoon: 12-17, evening: 17-21)
+  const timeSlots = { morning: 0, afternoon: 0, evening: 0 };
+  const timeRevenue = { morning: 0, afternoon: 0, evening: 0 };
+  const timeDelivery = { morning: 0, afternoon: 0, evening: 0 };
+  const timeTakeaway = { morning: 0, afternoon: 0, evening: 0 };
+  for (const t of stats.todayOrdersByTime || []) {
+    const h = t._id.hour;
+    const slot =
+      h >= 7 && h < 12
+        ? "morning"
+        : h >= 12 && h < 17
+          ? "afternoon"
+          : h >= 17 && h < 21
+            ? "evening"
+            : null;
+    if (!slot) continue;
+    timeSlots[slot] += t.count;
+    timeRevenue[slot] += t.revenue;
+    timeDelivery[slot] += t.delivery;
+    timeTakeaway[slot] += t.takeaway;
+  }
+
+  // Low-stock products
+  const lowStockProducts = await Product.find({
+    $expr: { $lte: ["$stockQuantity", "$lowStockThreshold"] },
+    isAvailable: true,
+  })
+    .select("name stockQuantity lowStockThreshold images unit category")
+    .sort({ stockQuantity: 1 })
+    .limit(10)
+    .lean();
+
   res.status(200).json(
     new ApiResponse(200, "Admin stats fetched", {
       totalOrders: overall.totalOrders,
@@ -458,6 +782,31 @@ export const getAdminStats = catchAsync(async (req, res, next) => {
       cancelledByUser: stats.cancelledByUser,
       recentOrders: stats.recentOrders,
       byPaymentMethod: paymentMap,
+      trendingProducts: (stats.trendingProducts || []).map((t) => ({
+        productId: t._id,
+        name: t.product?.name || "Unknown",
+        image: t.product?.images?.[0] || null,
+        unit: t.product?.unit || "",
+        totalSold: t.totalSold,
+        totalRevenue: Math.round(t.totalRevenue),
+      })),
+      activeOrderTracking: activeTracking,
+      todayByTime: Object.keys(timeSlots).map((slot) => ({
+        slot,
+        orders: timeSlots[slot],
+        revenue: Math.round(timeRevenue[slot]),
+        delivery: timeDelivery[slot],
+        takeaway: timeTakeaway[slot],
+      })),
+      lowStockProducts: lowStockProducts.map((p) => ({
+        _id: p._id,
+        name: p.name,
+        stock: p.stockQuantity,
+        threshold: p.lowStockThreshold,
+        image: p.images?.[0] || null,
+        unit: p.unit,
+        category: p.category,
+      })),
     }),
   );
 });

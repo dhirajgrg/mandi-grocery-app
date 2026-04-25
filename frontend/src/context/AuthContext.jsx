@@ -28,6 +28,21 @@ export const AuthProvider = ({ children }) => {
     }
   }, [user]);
 
+  // Auto-restore session from cookie on app load (for remember me)
+  useEffect(() => {
+    const restoreSession = async () => {
+      if (user || !localStorage.getItem("rememberMe")) return;
+      try {
+        const res = await authAPI.getMe();
+        const userData = res.data.data?.user;
+        if (userData) setUser(userData);
+      } catch {
+        localStorage.removeItem("rememberMe");
+      }
+    };
+    restoreSession();
+  }, []);
+
   const signup = async (data) => {
     setLoading(true);
     try {
@@ -68,6 +83,7 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setUser(null);
       localStorage.removeItem("user");
+      localStorage.removeItem("rememberMe");
       toast.success("Logged out successfully");
     }
   };

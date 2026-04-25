@@ -33,12 +33,6 @@ export const getCart = catchAsync(async (req, res, next) => {
 
 // POST /api/v1/cart/add
 export const addToCart = catchAsync(async (req, res, next) => {
-  if (!req.user.emailVerified) {
-    return next(
-      new AppError("Please verify your email before adding items to cart", 403),
-    );
-  }
-
   const { productId, quantity } = req.body;
   const normalizedQuantity = Number(quantity);
 

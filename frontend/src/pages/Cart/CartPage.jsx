@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useCart } from "../../context/CartContext";
 import { useAuth } from "../../context/AuthContext";
+import { useSocket } from "../../context/SocketContext";
 import { orderAPI } from "../../api/orderAPI";
+import { settingsAPI } from "../../api/settingsAPI";
 import LoadingSpinner from "../../components/ui/LoadingSpinner";
 import toast from "react-hot-toast";
 import {
@@ -14,7 +16,7 @@ import {
   Package,
   CreditCard,
   Truck,
-  Store,
+  AlertTriangle,
 } from "lucide-react";
 import LocationPicker from "../../components/ui/LocationPicker";
 import OptimizedImage from "../../components/ui/OptimizedImage";
@@ -28,7 +30,8 @@ const CartPage = () => {
     removeFromCart,
     fetchCart,
   } = useCart();
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated } = useAuth();
+  const { onEvent } = useSocket();
   const navigate = useNavigate();
   const [showCheckout, setShowCheckout] = useState(false);
   const [placing, setPlacing] = useState(false);
@@ -36,45 +39,102 @@ const CartPage = () => {
   const [lat, setLat] = useState(0);
   const [lng, setLng] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState("cod");
-  const [orderType, setOrderType] = useState("delivery");
+  const [selectedItems, setSelectedItems] = useState(new Set());
+  const [shopOpen, setShopOpen] = useState(true);
+  const [orderingOpen, setOrderingOpen] = useState(true);
+
+  useEffect(() => {
+    settingsAPI
+      .getShopStatus()
+      .then((res) => {
+        setShopOpen(res.data.data?.isOpen ?? true);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Check if current time is within ordering hours (7 AM - 9 PM)
+  useEffect(() => {
+    const checkOrderingHours = () => {
+      const now = new Date();
+      const h = now.getHours();
+      setOrderingOpen(h >= 7 && h < 21);
+    };
+    checkOrderingHours();
+    const interval = setInterval(checkOrderingHours, 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    return onEvent("shop_status_changed", (data) => {
+      setShopOpen(data.isOpen);
+      if (!data.isOpen && showCheckout) {
+        setShowCheckout(false);
+        toast.error("Shop is now closed");
+      }
+    });
+  }, [onEvent, showCheckout]);
+
+  const toggleSelectItem = (id) => {
+    setSelectedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedItems.size === cartItems.length) {
+      setSelectedItems(new Set());
+    } else {
+      setSelectedItems(
+        new Set(cartItems.map((i) => i.productId?._id || i.productId)),
+      );
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedItems.size === 0) return;
+    if (
+      !window.confirm(
+        `Remove ${selectedItems.size} selected item(s) from cart?`,
+      )
+    )
+      return;
+    try {
+      for (const id of selectedItems) {
+        await removeFromCart(id);
+      }
+      setSelectedItems(new Set());
+      toast.success(`${selectedItems.size} item(s) removed`);
+    } catch {
+      toast.error("Failed to remove items");
+    }
+  };
 
   if (!isAuthenticated) {
-    return (
-      <div className="mx-auto max-w-7xl px-4 py-20 text-center">
-        <ShoppingBag size={64} className="mx-auto text-text-muted/30 mb-4" />
-        <h2 className="text-2xl font-bold mb-2">Sign in to view your cart</h2>
-        <p className="text-text-muted mb-6">
-          You need to be logged in to manage your cart
-        </p>
-        <Link
-          to="/login"
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-primary-dark transition-all"
-        >
-          Sign In <ArrowRight size={16} />
-        </Link>
-      </div>
-    );
+    if (cartItems.length === 0) {
+      return (
+        <div className="mx-auto max-w-7xl px-4 py-20 text-center">
+          <ShoppingBag size={64} className="mx-auto text-text-muted/30 mb-4" />
+          <h2 className="text-2xl font-bold mb-2">Your cart is empty</h2>
+          <p className="text-text-muted mb-6">
+            Start shopping to add items to your cart
+          </p>
+          <Link
+            to="/"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-primary-dark transition-all"
+          >
+            Browse Products <ArrowRight size={16} />
+          </Link>
+        </div>
+      );
+    }
+    // Guest has items — show cart but prompt login at checkout
   }
 
-  if (isAuthenticated && user?.emailVerified === false) {
-    return (
-      <div className="mx-auto max-w-7xl px-4 py-20 text-center">
-        <ShoppingBag size={64} className="mx-auto text-text-muted/30 mb-4" />
-        <h2 className="text-2xl font-bold mb-2">Email Not Verified</h2>
-        <p className="text-text-muted mb-6">
-          Please verify your email to access your cart and place orders.
-        </p>
-        <Link
-          to="/"
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-primary-dark transition-all"
-        >
-          Go to Home <ArrowRight size={16} />
-        </Link>
-      </div>
-    );
-  }
-
-  if (loading) return <LoadingSpinner text="Loading cart..." />;
+  if (loading && isAuthenticated)
+    return <LoadingSpinner text="Loading cart..." />;
 
   if (cartItems.length === 0) {
     return (
@@ -104,26 +164,64 @@ const CartPage = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Cart Items */}
         <div className="lg:col-span-2 space-y-3">
+          {/* Select All + Delete Selected */}
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 cursor-pointer text-sm">
+              <input
+                type="checkbox"
+                checked={
+                  cartItems.length > 0 &&
+                  selectedItems.size === cartItems.length
+                }
+                onChange={toggleSelectAll}
+                className="accent-primary w-4 h-4 rounded"
+              />
+              Select All
+            </label>
+            {selectedItems.size > 0 && (
+              <button
+                onClick={handleDeleteSelected}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
+              >
+                <Trash2 size={13} />
+                Delete {selectedItems.size} selected
+              </button>
+            )}
+          </div>
+
           {cartItems.map((item) => {
             const product = item.productId;
+            const productId = product?._id || item.productId;
             return (
               <div
                 key={item._id}
-                className="flex gap-4 p-4 rounded-2xl bg-white border border-border hover:border-gray-300 transition-all"
+                className={`flex gap-4 p-4 rounded-2xl bg-white border transition-all ${
+                  selectedItems.has(productId)
+                    ? "border-primary ring-1 ring-primary/30"
+                    : "border-border hover:border-gray-300"
+                }`}
               >
-                <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-xl bg-surface-light overflow-hidden shrink-0">
-                  {product?.images?.[0] ? (
-                    <OptimizedImage
-                      src={product.images[0]}
-                      alt={product?.name}
-                      width={200}
-                      className="h-full w-full"
-                    />
-                  ) : (
-                    <div className="h-full w-full flex items-center justify-center">
-                      <Package size={24} className="text-text-muted/30" />
-                    </div>
-                  )}
+                <div className="flex flex-col items-center gap-2 shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={selectedItems.has(productId)}
+                    onChange={() => toggleSelectItem(productId)}
+                    className="accent-primary w-4 h-4 rounded mt-1"
+                  />
+                  <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-xl bg-surface-light overflow-hidden">
+                    {product?.images?.[0] ? (
+                      <OptimizedImage
+                        src={product.images[0]}
+                        alt={product?.name}
+                        width={200}
+                        className="h-full w-full"
+                      />
+                    ) : (
+                      <div className="h-full w-full flex items-center justify-center">
+                        <Package size={24} className="text-text-muted/30" />
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex-1 min-w-0">
@@ -164,14 +262,7 @@ const CartPage = () => {
                   </div>
                 </div>
 
-                <div className="flex flex-col items-end justify-between">
-                  <button
-                    onClick={() => removeFromCart(product?._id)}
-                    className="p-2 text-text-muted hover:text-error hover:bg-error/10 rounded-lg transition-all"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-
+                <div className="flex flex-col items-end justify-end">
                   <div className="flex items-center gap-2 bg-surface-light rounded-full px-1">
                     <button
                       onClick={() =>
@@ -252,98 +343,69 @@ const CartPage = () => {
             </div>
 
             <button
-              onClick={() => setShowCheckout(true)}
+              onClick={() => {
+                if (!isAuthenticated) {
+                  toast("Please sign in to checkout", { icon: "🔒" });
+                  navigate("/login");
+                  return;
+                }
+                if (!shopOpen) {
+                  toast.error(
+                    "Shop is currently closed. Please try again later.",
+                  );
+                  return;
+                }
+                if (!orderingOpen) {
+                  toast.error(
+                    "Orders can only be placed between 7:00 AM and 9:00 PM",
+                  );
+                  return;
+                }
+                setShowCheckout(true);
+              }}
               disabled={showCheckout}
-              className="flex items-center justify-center gap-2 w-full px-5 py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary-dark transition-all mb-3 disabled:opacity-50"
+              className="flex items-center justify-center gap-2 w-full px-5 py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary-dark transition-all disabled:opacity-50"
             >
               <CreditCard size={18} />
-              Proceed to Checkout
+              {isAuthenticated ? "Proceed to Checkout" : "Sign in to Checkout"}
             </button>
+
+            {!shopOpen && (
+              <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+                <AlertTriangle size={16} className="shrink-0" />
+                <span>
+                  Shop is currently closed. Orders cannot be placed right now.
+                </span>
+              </div>
+            )}
+
+            {shopOpen && !orderingOpen && (
+              <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+                <AlertTriangle size={16} className="shrink-0" />
+                <span>
+                  Ordering is available only between 7:00 AM – 9:00 PM. Please
+                  come back during ordering hours.
+                </span>
+              </div>
+            )}
 
             {showCheckout && (
               <div className="border-t border-border pt-4 mt-4 space-y-3">
-                {/* Order Type Selector */}
-                <div>
-                  <label className="block text-xs font-medium text-text-muted mb-2">
-                    Order Type
-                  </label>
-                  <div className="flex gap-3">
-                    <label
-                      className={`flex-1 flex items-center gap-2 px-4 py-3 rounded-xl border cursor-pointer transition-all ${
-                        orderType === "delivery"
-                          ? "border-primary bg-primary/5 ring-1 ring-primary"
-                          : "border-border hover:border-gray-300"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="orderType"
-                        value="delivery"
-                        checked={orderType === "delivery"}
-                        onChange={(e) => setOrderType(e.target.value)}
-                        className="accent-primary"
-                      />
-                      <Truck size={16} className="text-text-muted" />
-                      <span className="text-sm font-medium">Delivery</span>
-                    </label>
-                    <label
-                      className={`flex-1 flex items-center gap-2 px-4 py-3 rounded-xl border cursor-pointer transition-all ${
-                        orderType === "takeaway"
-                          ? "border-primary bg-primary/5 ring-1 ring-primary"
-                          : "border-border hover:border-gray-300"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="orderType"
-                        value="takeaway"
-                        checked={orderType === "takeaway"}
-                        onChange={(e) => setOrderType(e.target.value)}
-                        className="accent-primary"
-                      />
-                      <Store size={16} className="text-text-muted" />
-                      <span className="text-sm font-medium">Takeaway</span>
-                    </label>
-                  </div>
-                </div>
-
-                {/* Delivery Location (only for delivery) */}
-                {orderType === "delivery" ? (
-                  <>
-                    <h3 className="font-semibold text-sm">Delivery Location</h3>
-                    <LocationPicker
-                      onLocationChange={({
-                        lat: newLat,
-                        lng: newLng,
-                        address: newAddr,
-                      }) => {
-                        setLat(newLat);
-                        setLng(newLng);
-                        setAddress(newAddr);
-                      }}
-                      initialAddress={address}
-                    />
-                  </>
-                ) : (
-                  <div className="rounded-xl bg-amber-50 border border-amber-200 p-4">
-                    <div className="flex items-start gap-3">
-                      <Store
-                        size={18}
-                        className="text-amber-600 mt-0.5 shrink-0"
-                      />
-                      <div>
-                        <p className="text-sm font-semibold text-amber-800">
-                          Store Pickup
-                        </p>
-                        <p className="text-xs text-amber-700 mt-1">
-                          Your order will be prepared and ready for pickup at
-                          our store. You&apos;ll receive a notification when
-                          it&apos;s ready.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                {/* Delivery Location */}
+                <h3 className="font-semibold text-sm">Delivery Location</h3>
+                <LocationPicker
+                  autoDetect
+                  onLocationChange={({
+                    lat: newLat,
+                    lng: newLng,
+                    address: newAddr,
+                  }) => {
+                    setLat(newLat);
+                    setLng(newLng);
+                    setAddress(newAddr);
+                  }}
+                  initialAddress={address}
+                />
                 <div>
                   <label className="block text-xs font-medium text-text-muted mb-2">
                     Payment Method
@@ -389,7 +451,7 @@ const CartPage = () => {
                 </div>
                 <button
                   onClick={async () => {
-                    if (orderType === "delivery" && !address.trim()) {
+                    if (!address.trim()) {
                       toast.error("Please enter a delivery address");
                       return;
                     }
@@ -397,13 +459,10 @@ const CartPage = () => {
                     try {
                       if (paymentMethod === "esewa") {
                         const res = await orderAPI.initiateEsewa({
-                          address:
-                            orderType === "takeaway"
-                              ? "Takeaway - Store Pickup"
-                              : address.trim(),
-                          lat: orderType === "takeaway" ? 0 : lat,
-                          lng: orderType === "takeaway" ? 0 : lng,
-                          orderType,
+                          address: address.trim(),
+                          lat,
+                          lng,
+                          orderType: "delivery",
                         });
                         const { esewaFormData, esewaPaymentUrl } =
                           res.data.data;
@@ -429,20 +488,13 @@ const CartPage = () => {
 
                       // COD flow
                       await orderAPI.place({
-                        address:
-                          orderType === "takeaway"
-                            ? "Takeaway - Store Pickup"
-                            : address.trim(),
-                        lat: orderType === "takeaway" ? 0 : lat,
-                        lng: orderType === "takeaway" ? 0 : lng,
+                        address: address.trim(),
+                        lat,
+                        lng,
                         paymentMethod: "cod",
-                        orderType,
+                        orderType: "delivery",
                       });
-                      toast.success(
-                        orderType === "takeaway"
-                          ? "Order placed! Ready for pickup soon."
-                          : "Order placed successfully!",
-                      );
+                      toast.success("Order placed successfully!");
                       await fetchCart();
                       navigate("/orders");
                     } catch (err) {
@@ -467,7 +519,7 @@ const CartPage = () => {
 
             <Link
               to="/"
-              className="flex items-center justify-center gap-2 w-full px-5 py-2.5 bg-surface-light text-text font-medium rounded-xl hover:bg-gray-200 transition-all text-sm"
+              className="flex items-center justify-center gap-2 w-full px-5 py-2.5 bg-surface-light text-text font-medium rounded-xl hover:bg-gray-200 transition-all text-sm mt-3"
             >
               Continue Shopping
               <ArrowRight size={14} />

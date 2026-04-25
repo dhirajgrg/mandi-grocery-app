@@ -32,8 +32,8 @@ const PrivacyPolicyPage = () => {
           </p>
           <ul className="text-sm text-text-muted leading-relaxed space-y-2 list-disc pl-5">
             <li>
-              <strong>Account Information:</strong> Name, email address, phone
-              number, and password when you create an account.
+              <strong>Account Information:</strong> Name, phone number, and
+              password when you create an account.
             </li>
             <li>
               <strong>Order Information:</strong> Delivery address, location
@@ -56,7 +56,7 @@ const PrivacyPolicyPage = () => {
               Processing and fulfilling your orders (delivery and takeaway).
             </li>
             <li>Sending order status updates and notifications.</li>
-            <li>Verifying your email address and account security.</li>
+            <li>Verifying your mobile number and account security.</li>
             <li>Improving our products, services, and user experience.</li>
             <li>Communicating with you about your orders and account.</li>
           </ul>

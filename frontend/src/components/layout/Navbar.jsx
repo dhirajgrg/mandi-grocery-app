@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
@@ -15,8 +15,12 @@ import {
   ShoppingBag,
   Phone,
   Tag,
+  User,
+  Settings,
   Sun,
   Moon,
+  ChevronDown,
+  Bell,
 } from "lucide-react";
 
 const Navbar = () => {
@@ -27,22 +31,44 @@ const Navbar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Close dropdown on route change
+  useEffect(() => {
+    setDropdownOpen(false);
+    setMobileOpen(false);
+  }, [location.pathname]);
 
   // Listen for real-time socket events
   useEffect(() => {
     if (!isAuthenticated) return;
-    const event = isAdmin ? "new_order" : "order_status_changed";
-    return onEvent(event, () => {
-      // Don't increment if already viewing the relevant page
-      if (isAdmin && location.pathname === "/admin") return;
-      if (!isAdmin && location.pathname === "/orders") return;
-      incrementNotifs();
-    });
+    if (isAdmin) {
+      // Admin: always increment on new orders (bell count stays until orders tab is viewed)
+      return onEvent("order_update", (data) => {
+        if (data.type === "new_order") incrementNotifs();
+      });
+    } else {
+      return onEvent("order_status_changed", () => {
+        if (location.pathname === "/orders") return;
+        incrementNotifs();
+      });
+    }
   }, [isAuthenticated, isAdmin, onEvent, incrementNotifs, location.pathname]);
 
-  // Clear notifications when visiting the relevant page
+  // Clear notifications when customer visits orders page
   useEffect(() => {
-    if (isAdmin && location.pathname === "/admin") clearNotifs();
     if (!isAdmin && location.pathname === "/orders") clearNotifs();
   }, [location.pathname, isAdmin, clearNotifs]);
 
@@ -99,60 +125,22 @@ const Navbar = () => {
 
           {/* Desktop Right Side */}
           <div className="hidden md:flex items-center gap-2">
-            {/* Theme Toggle */}
-            <button
-              onClick={toggleTheme}
-              className="relative p-2 rounded-lg text-text-muted hover:bg-surface-light hover:rotate-12 active:scale-90 transition-all duration-200"
-              title={dark ? "Switch to light mode" : "Switch to dark mode"}
-            >
-              <Sun
-                size={18}
-                className={`absolute inset-0 m-auto transition-all duration-300 ${dark ? "opacity-0 rotate-90 scale-0" : "opacity-100 rotate-0 scale-100"}`}
-              />
-              <Moon
-                size={18}
-                className={`transition-all duration-300 ${dark ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-0"}`}
-              />
-            </button>
-
             {isAuthenticated ? (
               <>
-                {isAdmin && (
-                  <Link
-                    to="/admin"
-                    className={`relative flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 hover:-translate-y-0.5 active:scale-95 ${
-                      location.pathname === "/admin"
-                        ? "bg-primary text-white"
-                        : "text-text hover:bg-surface-light"
-                    }`}
-                  >
-                    <LayoutDashboard size={16} />
-                    Dashboard
-                    {notifCount > 0 && (
-                      <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white animate-pulse">
-                        {notifCount}
-                      </span>
-                    )}
-                  </Link>
-                )}
-                {!isAdmin && (
-                  <Link
-                    to="/orders"
-                    className={`relative flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 hover:-translate-y-0.5 active:scale-95 ${
-                      location.pathname === "/orders"
-                        ? "bg-primary text-white"
-                        : "text-text hover:bg-surface-light"
-                    }`}
-                  >
-                    <ClipboardList size={16} />
-                    Orders
-                    {notifCount > 0 && (
-                      <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white animate-pulse">
-                        {notifCount}
-                      </span>
-                    )}
-                  </Link>
-                )}
+                {/* Bell Notification */}
+                <Link
+                  to={isAdmin ? "/admin?tab=orders" : "/orders"}
+                  onClick={clearNotifs}
+                  className="relative p-2 rounded-lg text-text hover:bg-surface-light hover:-translate-y-0.5 active:scale-90 transition-all duration-200"
+                >
+                  <Bell size={20} />
+                  {notifCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white animate-pulse">
+                      {notifCount}
+                    </span>
+                  )}
+                </Link>
+
                 {!isAdmin && (
                   <Link
                     to="/cart"
@@ -166,36 +154,136 @@ const Navbar = () => {
                     )}
                   </Link>
                 )}
-                <Link
-                  to="/profile"
-                  className={`flex items-center gap-2 px-2 py-2 rounded-lg text-sm font-medium transition-all duration-200 hover:-translate-y-0.5 active:scale-95 ${
-                    location.pathname === "/profile"
-                      ? "bg-primary text-white"
-                      : "hover:bg-surface-light"
-                  }`}
-                >
-                  <div className="h-7 w-7 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold overflow-hidden">
-                    {user?.profilePic ? (
-                      <img
-                        src={user.profilePic}
-                        alt={user.name}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      user?.name?.charAt(0)?.toUpperCase() || "U"
-                    )}
-                  </div>
-                </Link>
-                <button
-                  onClick={handleLogout}
-                  className="p-2 rounded-lg text-text-muted hover:bg-surface-light hover:text-error hover:-translate-y-0.5 active:scale-90 transition-all duration-200"
-                  title="Logout"
-                >
-                  <LogOut size={18} />
-                </button>
+
+                {/* Profile Dropdown */}
+                <div className="relative" ref={dropdownRef}>
+                  <button
+                    onClick={() => setDropdownOpen(!dropdownOpen)}
+                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 hover:-translate-y-0.5 active:scale-95 ${
+                      dropdownOpen
+                        ? "bg-surface-light"
+                        : "hover:bg-surface-light"
+                    }`}
+                  >
+                    <div className="relative h-7 w-7 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold overflow-hidden">
+                      {user?.profilePic ? (
+                        <img
+                          src={user.profilePic}
+                          alt={user.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        user?.name?.charAt(0)?.toUpperCase() || "U"
+                      )}
+                    </div>
+                    <ChevronDown
+                      size={14}
+                      className={`text-text-muted transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`}
+                    />
+                  </button>
+
+                  {dropdownOpen && (
+                    <div className="absolute right-0 mt-2 w-56 rounded-xl bg-white border border-border shadow-lg py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                      {/* User Info Header */}
+                      <div className="px-4 py-2.5 border-b border-border">
+                        <p className="text-sm font-semibold truncate">
+                          {user?.name}
+                        </p>
+                        <p className="text-xs text-text-muted">
+                          +977 {user?.mobile}
+                        </p>
+                      </div>
+
+                      <div className="py-1">
+                        {/* Admin items */}
+                        {isAdmin && (
+                          <Link
+                            to="/admin"
+                            className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-surface-light transition-colors"
+                          >
+                            <LayoutDashboard
+                              size={16}
+                              className="text-text-muted"
+                            />
+                            Dashboard
+                          </Link>
+                        )}
+
+                        {/* Customer items */}
+                        {!isAdmin && (
+                          <>
+                            <Link
+                              to="/profile"
+                              className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-surface-light transition-colors"
+                            >
+                              <User size={16} className="text-text-muted" />
+                              Profile
+                            </Link>
+                            <Link
+                              to="/orders"
+                              className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-surface-light transition-colors"
+                            >
+                              <ClipboardList
+                                size={16}
+                                className="text-text-muted"
+                              />
+                              Order History
+                            </Link>
+                          </>
+                        )}
+
+                        {/* Common: Settings */}
+                        <Link
+                          to="/settings"
+                          className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-surface-light transition-colors"
+                        >
+                          <Settings size={16} className="text-text-muted" />
+                          Settings
+                        </Link>
+
+                        {/* Theme Toggle */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleTheme();
+                          }}
+                          className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-surface-light transition-colors w-full"
+                        >
+                          {dark ? (
+                            <Sun size={16} className="text-text-muted" />
+                          ) : (
+                            <Moon size={16} className="text-text-muted" />
+                          )}
+                          {dark ? "Light Mode" : "Dark Mode"}
+                        </button>
+                      </div>
+
+                      <div className="border-t border-border pt-1">
+                        <button
+                          onClick={handleLogout}
+                          className="flex items-center gap-3 px-4 py-2.5 text-sm text-error hover:bg-error/5 transition-colors w-full"
+                        >
+                          <LogOut size={16} />
+                          Logout
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </>
             ) : (
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
+                <Link
+                  to="/cart"
+                  className="relative p-2 rounded-lg text-text hover:bg-surface-light hover:-translate-y-0.5 active:scale-90 transition-all duration-200"
+                >
+                  <ShoppingCart size={20} />
+                  {cartCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-white">
+                      {cartCount}
+                    </span>
+                  )}
+                </Link>
                 <Link
                   to="/login"
                   className="px-5 py-2 rounded-lg text-sm font-semibold text-text hover:bg-surface-light hover:-translate-y-0.5 active:scale-95 transition-all duration-200"
@@ -214,22 +302,22 @@ const Navbar = () => {
 
           {/* Mobile */}
           <div className="flex md:hidden items-center gap-2">
-            {/* Mobile Theme Toggle */}
-            <button
-              onClick={toggleTheme}
-              className="relative p-2 rounded-lg text-text-muted hover:bg-surface-light hover:rotate-12 active:scale-90 transition-all duration-200"
-            >
-              <Sun
-                size={18}
-                className={`absolute inset-0 m-auto transition-all duration-300 ${dark ? "opacity-0 rotate-90 scale-0" : "opacity-100 rotate-0 scale-100"}`}
-              />
-              <Moon
-                size={18}
-                className={`transition-all duration-300 ${dark ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-0"}`}
-              />
-            </button>
-
-            {isAuthenticated && !isAdmin && (
+            {/* Mobile Bell */}
+            {isAuthenticated && (
+              <Link
+                to={isAdmin ? "/admin?tab=orders" : "/orders"}
+                onClick={clearNotifs}
+                className="relative p-2 hover:-translate-y-0.5 active:scale-90 transition-all duration-200"
+              >
+                <Bell size={20} />
+                {notifCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white animate-pulse">
+                    {notifCount}
+                  </span>
+                )}
+              </Link>
+            )}
+            {!isAdmin && (
               <Link
                 to="/cart"
                 className="relative p-2 hover:-translate-y-0.5 active:scale-90 transition-all duration-200"
@@ -244,7 +332,7 @@ const Navbar = () => {
             )}
             <button
               onClick={() => setMobileOpen(!mobileOpen)}
-              className="p-2 rounded-lg hover:bg-surface-light active:scale-90 transition-all duration-200"
+              className="relative p-2 rounded-lg hover:bg-surface-light active:scale-90 transition-all duration-200"
             >
               {mobileOpen ? <X size={22} /> : <Menu size={22} />}
             </button>
@@ -277,11 +365,8 @@ const Navbar = () => {
 
             {isAuthenticated ? (
               <>
-                <Link
-                  to="/profile"
-                  onClick={() => setMobileOpen(false)}
-                  className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-surface-light hover:translate-x-1 active:scale-[0.98] transition-all duration-200"
-                >
+                {/* User Info */}
+                <div className="flex items-center gap-3 px-4 py-3">
                   <div className="h-8 w-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold overflow-hidden">
                     {user?.profilePic ? (
                       <img
@@ -295,9 +380,13 @@ const Navbar = () => {
                   </div>
                   <div>
                     <p className="text-sm font-semibold">{user?.name}</p>
-                    <p className="text-xs text-text-muted">{user?.email}</p>
+                    <p className="text-xs text-text-muted">
+                      +977 {user?.mobile}
+                    </p>
                   </div>
-                </Link>
+                </div>
+
+                {/* Admin: Dashboard */}
                 {isAdmin && (
                   <Link
                     to="/admin"
@@ -306,28 +395,52 @@ const Navbar = () => {
                   >
                     <LayoutDashboard size={18} />
                     Dashboard
-                    {notifCount > 0 && (
-                      <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white px-1">
-                        {notifCount}
-                      </span>
-                    )}
                   </Link>
                 )}
+
+                {/* Customer: Profile & Orders */}
                 {!isAdmin && (
-                  <Link
-                    to="/orders"
-                    onClick={() => setMobileOpen(false)}
-                    className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm hover:bg-surface-light hover:translate-x-1 active:scale-[0.98] transition-all duration-200"
-                  >
-                    <ClipboardList size={18} />
-                    My Orders
-                    {notifCount > 0 && (
-                      <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white px-1">
-                        {notifCount}
-                      </span>
-                    )}
-                  </Link>
+                  <>
+                    <Link
+                      to="/profile"
+                      onClick={() => setMobileOpen(false)}
+                      className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm hover:bg-surface-light hover:translate-x-1 active:scale-[0.98] transition-all duration-200"
+                    >
+                      <User size={18} />
+                      Profile
+                    </Link>
+                    <Link
+                      to="/orders"
+                      onClick={() => setMobileOpen(false)}
+                      className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm hover:bg-surface-light hover:translate-x-1 active:scale-[0.98] transition-all duration-200"
+                    >
+                      <ClipboardList size={18} />
+                      Order History
+                    </Link>
+                  </>
                 )}
+
+                {/* Common: Settings */}
+                <Link
+                  to="/settings"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm hover:bg-surface-light hover:translate-x-1 active:scale-[0.98] transition-all duration-200"
+                >
+                  <Settings size={18} />
+                  Settings
+                </Link>
+
+                {/* Theme Toggle */}
+                <button
+                  onClick={toggleTheme}
+                  className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm hover:bg-surface-light hover:translate-x-1 active:scale-[0.98] w-full transition-all duration-200"
+                >
+                  {dark ? <Sun size={18} /> : <Moon size={18} />}
+                  {dark ? "Light Mode" : "Dark Mode"}
+                </button>
+
+                <div className="border-t border-border my-1" />
+
                 <button
                   onClick={handleLogout}
                   className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm text-error hover:bg-error/5 hover:translate-x-1 active:scale-[0.98] w-full transition-all duration-200"

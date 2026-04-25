@@ -3,10 +3,15 @@
 A full-stack e-commerce grocery delivery application built with modern web technologies. Mandi provides a seamless shopping experience for customers and comprehensive management tools for administrators.
 
 
- ** User login details
+ ### User login details
 
     - phone : 9899999999
     - password : test1234
+
+ ### Admin login details
+
+    - phone : 9768033768
+    - password : adminadmin
 
 # DEMO OF APP -[ Link here](https://mandi-three.vercel.app/)
 # User view
@@ -453,7 +458,7 @@ This project is licensed under the ISC License - see the LICENSE file for detail
 
 ## 📧 Support
 
-For support, email support@mandigrocery.com or open an issue on GitHub.
+For support, email gdhiraj030@gmail.com or open an issue on GitHub.
 
 ---
 

@@ -3,12 +3,12 @@
 A full-stack e-commerce grocery delivery application built with modern web technologies. Mandi provides a seamless shopping experience for customers and comprehensive management tools for administrators.
 
 
- ** User login details
+ ### User login details
 
     - phone : 9899999999
     - password : test1234
 
- ** Admin login details
+ ### Admin login details
 
     - phone : 9768033768
     - password : adminadmin
